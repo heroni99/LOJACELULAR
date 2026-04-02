@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 38 48% 96%;
+  --foreground: 215 33% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 215 33% 14%;
+  --primary: 18 89% 53%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 42 62% 90%;
+  --secondary-foreground: 216 32% 18%;
+  --muted: 38 42% 92%;
+  --muted-foreground: 215 16% 42%;
+  --border: 30 28% 82%;
+  --input: 30 28% 82%;
+  --ring: 18 89% 53%;
+  --radius: 1rem;
+  --brand-primary-rgb: 249 115 22;
+  --brand-secondary-rgb: 17 24 39;
+  --shell-sidebar: #111827;
+  --shell-sidebar-foreground: #ffffff;
+  --shell-sidebar-muted: #cbd5e1;
+  --shell-surface: #ffffff;
+  --shell-surface-foreground: #111827;
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  font-family: "Manrope", "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgb(var(--brand-primary-rgb) / 0.16), transparent 34%),
+    radial-gradient(circle at bottom right, rgb(var(--brand-secondary-rgb) / 0.12), transparent 32%),
+    hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+#root {
+  min-height: 100vh;
+}

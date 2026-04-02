@@ -1,0 +1,35 @@
+{
+  "name": "lojacelular",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema web de loja de celular para uso em rede local.",
+  "packageManager": "pnpm@10.0.0",
+  "dependencies": {
+    "@prisma/client": "^7.0.0",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.6.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/engines",
+      "esbuild",
+      "prisma"
+    ]
+  },
+  "scripts": {
+    "dev": "pnpm --filter @lojacelular/shared build && pnpm --parallel --filter @lojacelular/api --filter @lojacelular/web dev",
+    "dev:wsl": "bash ./scripts/dev-wsl.sh",
+    "dev:shared": "pnpm --filter @lojacelular/shared dev",
+    "dev:api": "pnpm --filter @lojacelular/shared build && pnpm --filter @lojacelular/api dev",
+    "dev:web": "pnpm --filter @lojacelular/shared build && pnpm --filter @lojacelular/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "prisma:generate": "pnpm --filter @lojacelular/api prisma:generate",
+    "prisma:migrate:dev": "pnpm --filter @lojacelular/api prisma:migrate:dev",
+    "prisma:seed": "pnpm --filter @lojacelular/api prisma:seed",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  }
+}

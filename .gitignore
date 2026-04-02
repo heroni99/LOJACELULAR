@@ -1,0 +1,23 @@
+node_modules
+.pnpm-store
+.turbo
+dist
+build
+coverage
+.env
+.env.local
+.env.*.local
+!.env.example
+*.log
+*.tsbuildinfo
+apps/api/uploads/
+
+# Prisma
+prisma/dev.db
+
+# Vite
+apps/web/.vite
+
+# OS
+.DS_Store
+Thumbs.db
