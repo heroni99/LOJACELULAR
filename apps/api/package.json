@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @lojacelular/shared build && nest start --watch",
-    "build": "pnpm --filter @lojacelular/shared build && nest build",
+    "build": "pnpm --filter @lojacelular/shared build && pnpm prisma:generate && nest build",
     "start": "node dist/main.js",
     "typecheck": "pnpm --filter @lojacelular/shared build && tsc -p tsconfig.json --noEmit",
     "lint": "pnpm --filter @lojacelular/shared build && tsc -p tsconfig.json --noEmit",
@@ -22,6 +22,7 @@
     "@nestjs/websockets": "^11.0.0",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.0.0",
+    "@vercel/nest": "^1.0.0",
     "bcryptjs": "^3.0.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",

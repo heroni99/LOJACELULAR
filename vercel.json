@@ -1,11 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @lojacelular/shared build && pnpm --filter @lojacelular/web build",
+  "buildCommand": "pnpm --filter @lojacelular/shared build && pnpm --filter @lojacelular/api build && pnpm --filter @lojacelular/web build",
   "outputDirectory": "apps/web/dist",
+  "functions": {
+    "apps/api/dist/main.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
   "routes": [
     {
       "handle": "filesystem"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "/apps/api/dist/main.js"
     },
     {
       "src": "/(.*)",

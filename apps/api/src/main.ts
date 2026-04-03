@@ -9,39 +9,13 @@ import { AppModule } from "./app.module";
 import { getRequiredEnv } from "./common/env";
 import { formatValidationErrors } from "./common/validation-errors";
 
-function isLocalNetworkOrigin(origin: string) {
-  try {
-    const { hostname } = new URL(origin);
+getRequiredEnv("DATABASE_URL");
+getRequiredEnv("JWT_SECRET");
+getRequiredEnv("JWT_REFRESH_SECRET");
 
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
-      return true;
-    }
-
-    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
-      return true;
-    }
-
-    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
-      return true;
-    }
-
-    const private172Match = hostname.match(/^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
-    if (!private172Match) {
-      return false;
-    }
-
-    const secondOctet = Number(private172Match[1]);
-    return secondOctet >= 16 && secondOctet <= 31;
-  } catch {
-    return false;
-  }
-}
+let app: NestExpressApplication;
 
 async function bootstrap() {
-  getRequiredEnv("DATABASE_URL");
-  getRequiredEnv("JWT_SECRET");
-  getRequiredEnv("JWT_REFRESH_SECRET");
-
   const configuredOrigins = new Set(
     (process.env.API_CORS_ORIGIN ?? "http://localhost:5173")
       .split(",")
@@ -49,7 +23,8 @@ async function bootstrap() {
       .filter(Boolean)
   );
   const isDevelopment = (process.env.NODE_ENV ?? "development") !== "production";
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+
+  app = await NestFactory.create<NestExpressApplication>(AppModule, {
     cors: {
       origin: (origin, callback) => {
         if (!origin) {
@@ -87,12 +62,42 @@ async function bootstrap() {
     })
   );
 
-  const host = process.env.API_HOST ?? "0.0.0.0";
-  const port = Number(process.env.API_PORT ?? 3000);
-
-  await app.listen(port, host);
-
-  console.log(`API pronta em http://${host}:${port}/api`);
+  await app.init();
 }
 
-bootstrap();
+function isLocalNetworkOrigin(origin: string) {
+  try {
+    const { hostname } = new URL(origin);
+
+    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
+      return true;
+    }
+
+    if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+      return true;
+    }
+
+    if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+      return true;
+    }
+
+    const private172Match = hostname.match(/^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+    if (!private172Match) {
+      return false;
+    }
+
+    const secondOctet = Number(private172Match[1]);
+    return secondOctet >= 16 && secondOctet <= 31;
+  } catch {
+    return false;
+  }
+}
+
+export default async (req: any, res: any) => {
+  if (!app) {
+    await bootstrap();
+  }
+
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp(req, res);
+};
