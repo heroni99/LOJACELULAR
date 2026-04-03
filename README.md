@@ -265,3 +265,13 @@ Ambos nascem com a mesma senha inicial definida em `SEED_ADMIN_PASSWORD`.
 - O pacote `@lojacelular/shared` compila para `dist` e participa do fluxo de `pnpm dev`.
 - Sempre que a estrutura do banco mudar, atualize tambem o `prisma/seed.ts`.
 - O roadmap historico do projeto continua documentado em `AGENTS.md` e `docs/codex-tasks/`, mas o estado atual consolidado do produto fica em `docs/current-state.md`.
+
+
+
+echo "# LOJACELULAR" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/heroni99/LOJACELULAR.git
+git push -u origin main
