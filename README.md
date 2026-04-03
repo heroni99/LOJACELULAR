@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ALPHA TECNOLOGIA
 
 Sistema web para operacao de loja de celular em rede local, organizado como monorepo `pnpm` com frontend React/Vite, backend NestJS, PostgreSQL e Prisma.
@@ -275,3 +276,6 @@ git commit -m "first commit"
 git branch -M main
 git remote add origin https://github.com/heroni99/LOJACELULAR.git
 git push -u origin main
+=======
+# LOJACELULAR
+>>>>>>> 41e25e887ccd47a71ecb69670807c1921770ade6
