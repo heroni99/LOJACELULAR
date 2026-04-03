@@ -3,9 +3,9 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "baseUrl": ".",
     "paths": {},
     "outDir": "./dist",
+    "rootDir": "./src",
     "declaration": true,
     "removeComments": true,
     "emitDecoratorMetadata": true,
@@ -13,6 +13,10 @@
     "allowJs": false,
     "sourceMap": true,
     "incremental": true,
+    "typeRoots": [
+      "./node_modules/@types",
+      "../../node_modules/@types"
+    ],
     "types": [
       "node"
     ]
