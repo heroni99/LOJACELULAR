@@ -20,6 +20,39 @@ import {
 import { clearStoredSession } from "./session-storage";
 import { error as toastError } from "./toast";
 
+export const API_CONFIGURATION_ERROR_MESSAGE =
+  "API publica nao configurada para este deploy. Defina VITE_API_URL com a URL publica da API.";
+
+function isLocalDevelopmentHostname(hostname: string) {
+  if (
+    hostname === "localhost" ||
+    hostname === "127.0.0.1" ||
+    hostname === "::1" ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".lan")
+  ) {
+    return true;
+  }
+
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+    return true;
+  }
+
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+    return true;
+  }
+
+  const private172Match = hostname.match(/^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (private172Match) {
+    const secondOctet = Number(private172Match[1]);
+    if (secondOctet >= 16 && secondOctet <= 31) {
+      return true;
+    }
+  }
+
+  return !hostname.includes(".");
+}
+
 function resolveApiUrl() {
   const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
   if (configuredApiUrl) {
@@ -27,14 +60,19 @@ function resolveApiUrl() {
   }
 
   if (typeof window !== "undefined") {
-    return `${window.location.protocol}//${window.location.hostname}:3000/api`;
+    if (isLocalDevelopmentHostname(window.location.hostname)) {
+      return `${window.location.protocol}//${window.location.hostname}:3000/api`;
+    }
+
+    return "";
   }
 
   return "http://localhost:3000/api";
 }
 
 const API_URL = resolveApiUrl();
-export const API_ORIGIN = API_URL.replace(/\/api$/, "");
+export const IS_API_CONFIGURED = API_URL.length > 0;
+export const API_ORIGIN = IS_API_CONFIGURED ? API_URL.replace(/\/api$/, "") : "";
 const GLOBAL_SERVER_ERROR_THROTTLE_MS = 5000;
 const PENDING_TOAST_STORAGE_KEY = "lojacelular.pending-toast";
 const recentGlobalErrors = new Map<string, number>();
@@ -45,6 +83,17 @@ type RequestMetadata = {
   skipUnauthorizedRedirect?: boolean;
   skipGlobalErrorToast?: boolean;
 };
+
+function ensureApiConfigured(path?: string) {
+  if (IS_API_CONFIGURED) {
+    return;
+  }
+
+  throw createApiHttpError({
+    body: API_CONFIGURATION_ERROR_MESSAGE,
+    path
+  });
+}
 
 function shouldEmitGlobalServerErrorToast(message: string) {
   const now = Date.now();
@@ -132,6 +181,8 @@ async function readJson<T>(
   init?: RequestInit,
   metadata: RequestMetadata = {}
 ): Promise<T> {
+  ensureApiConfigured(metadata.path);
+
   let response: Response;
 
   try {
@@ -3165,6 +3216,8 @@ async function readAuthenticatedFile(
   { token, ...init }: AuthenticatedJsonOptions,
   metadata: Omit<RequestMetadata, "path" | "authenticated"> = {}
 ): Promise<DownloadedFile> {
+  ensureApiConfigured(path);
+
   let response: Response;
 
   try {
@@ -3215,6 +3268,19 @@ async function readAuthenticatedFile(
 }
 
 export async function getHealth(): Promise<HealthResponse> {
+  if (!IS_API_CONFIGURED) {
+    return {
+      status: "degraded",
+      app: import.meta.env.VITE_APP_NAME?.trim() || "ALPHA TECNOLOGIA",
+      timestamp: new Date().toISOString(),
+      version: "0.1.0",
+      database: {
+        status: "down",
+        message: API_CONFIGURATION_ERROR_MESSAGE
+      }
+    };
+  }
+
   const payload = await readJson<unknown>(`${API_URL}/health`, undefined, {
     path: "/health"
   });
@@ -4203,6 +4269,10 @@ export function resolveApiAssetUrl(path?: string | null) {
     return path;
   }
 
+  if (!API_ORIGIN) {
+    return null;
+  }
+
   return `${API_ORIGIN}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
@@ -4213,6 +4283,8 @@ async function uploadAuthenticatedFile<TResponse>(
   onProgress?: UploadProgressCallback,
   metadata: Omit<RequestMetadata, "path" | "authenticated"> = {}
 ): Promise<TResponse> {
+  ensureApiConfigured(path);
+
   const formData = new FormData();
   formData.set("file", file);
 

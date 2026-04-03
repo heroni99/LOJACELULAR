@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # ALPHA TECNOLOGIA
 
 Sistema web para operacao de loja de celular em rede local, organizado como monorepo `pnpm` com frontend React/Vite, backend NestJS, PostgreSQL e Prisma.
@@ -237,6 +236,7 @@ Use este arranjo:
 Importante:
 
 - a web precisa de `VITE_API_URL` apontando para a URL publica da API, por exemplo `https://api.seudominio.com/api`
+- a API publica precisa aceitar o frontend publicado em `API_CORS_ORIGIN`, por exemplo `https://seu-projeto.vercel.app`
 - sem uma API publica configurada, o login e os fluxos protegidos nao funcionam no deploy
 - o backend atual usa Prisma, PostgreSQL e Socket.IO para o scanner/PDV; esse bloco nao deve ser tratado como deploy pronto para Vercel do jeito atual
 
@@ -246,6 +246,7 @@ Se for criar o projeto no painel do Vercel, importe o repositorio normalmente pe
 - build apenas de `@lojacelular/shared` e `@lojacelular/web`
 - saida em `apps/web/dist`
 - fallback de rotas para `index.html` no SPA
+- nenhum deploy de function/API dentro do Vercel neste arranjo
 
 O seed tambem cria os owners:
 
@@ -266,16 +267,3 @@ Ambos nascem com a mesma senha inicial definida em `SEED_ADMIN_PASSWORD`.
 - O pacote `@lojacelular/shared` compila para `dist` e participa do fluxo de `pnpm dev`.
 - Sempre que a estrutura do banco mudar, atualize tambem o `prisma/seed.ts`.
 - O roadmap historico do projeto continua documentado em `AGENTS.md` e `docs/codex-tasks/`, mas o estado atual consolidado do produto fica em `docs/current-state.md`.
-
-
-
-echo "# LOJACELULAR" >> README.md
-git init
-git add README.md
-git commit -m "first commit"
-git branch -M main
-git remote add origin https://github.com/heroni99/LOJACELULAR.git
-git push -u origin main
-=======
-# LOJACELULAR
->>>>>>> 41e25e887ccd47a71ecb69670807c1921770ade6

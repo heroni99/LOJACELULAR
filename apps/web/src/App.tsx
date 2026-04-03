@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { LoginForm } from "./features/auth/login-form";
 import { MobileScannerPage } from "./pages/scanner/mobile-scanner-page";
 import {
+  API_CONFIGURATION_ERROR_MESSAGE,
+  IS_API_CONFIGURED,
   getCurrentStore,
   getHealth,
   getMe,
@@ -44,11 +46,13 @@ export default function App() {
   const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: getHealth,
-    refetchInterval: 30000
+    refetchInterval: IS_API_CONFIGURED ? 30000 : false,
+    retry: IS_API_CONFIGURED ? 1 : false
   });
   const storeQuery = useQuery({
     queryKey: ["stores", "current"],
     queryFn: () => getCurrentStore(),
+    enabled: IS_API_CONFIGURED,
     retry: 1
   });
 
@@ -123,6 +127,24 @@ export default function App() {
   }, []);
 
   const activeStore = storeQuery.data ?? null;
+  const apiStatusText = healthQuery.data?.status === "ok"
+    ? "online"
+    : IS_API_CONFIGURED
+      ? "aguardando"
+      : "nao configurada";
+  const apiMetricValue = healthQuery.data?.status === "ok"
+    ? "Online"
+    : IS_API_CONFIGURED
+      ? "Aguardando"
+      : "Nao configurada";
+  const databaseMetricValue = healthQuery.data?.database.status === "up"
+    ? "Conectado"
+    : IS_API_CONFIGURED
+      ? "Indisponivel"
+      : "Nao verificado";
+  const environmentMessage =
+    healthQuery.data?.database.message ??
+    (IS_API_CONFIGURED ? "Verifique PostgreSQL e API." : API_CONFIGURATION_ERROR_MESSAGE);
 
   if (location.pathname === "/scanner") {
     return <MobileScannerPage />;
@@ -205,14 +227,12 @@ export default function App() {
               <BrandMetric
                 icon={<Wifi className="h-4 w-4" />}
                 label="API"
-                value={healthQuery.data?.status === "ok" ? "Online" : "Aguardando"}
+                value={apiMetricValue}
               />
               <BrandMetric
                 icon={<ShieldCheck className="h-4 w-4" />}
                 label="Banco"
-                value={
-                  healthQuery.data?.database.status === "up" ? "Conectado" : "Indisponivel"
-                }
+                value={databaseMetricValue}
               />
               <BrandMetric
                 icon={<StoreIcon className="h-4 w-4" />}
@@ -255,13 +275,13 @@ export default function App() {
                 <p>
                   API:{" "}
                   <strong className="text-foreground">
-                    {healthQuery.data?.status === "ok" ? "online" : "aguardando"}
+                    {apiStatusText}
                   </strong>
                 </p>
                 <p>
                   Banco:{" "}
                   <strong className="text-foreground">
-                    {healthQuery.data?.database.message ?? "Verifique PostgreSQL e API."}
+                    {environmentMessage}
                   </strong>
                 </p>
                 <p>
