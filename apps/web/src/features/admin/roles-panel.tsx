@@ -105,7 +105,9 @@ const permissionGroups: Array<{
       { key: "accounts-receivable.create", label: "Criar contas a receber" },
       { key: "accounts-receivable.update", label: "Editar contas a receber" },
       { key: "accounts-receivable.receive", label: "Baixar contas a receber" },
-      { key: "financial.read", label: "Consultar resumo financeiro" }
+      { key: "financial.read", label: "Consultar resumo financeiro" },
+      { key: "commissions.read", label: "Consultar comissoes e metas pessoais" },
+      { key: "commissions.manage", label: "Gerenciar comissoes e metas da equipe" }
     ]
   }
 ];

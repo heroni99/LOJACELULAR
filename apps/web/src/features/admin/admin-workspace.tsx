@@ -20,6 +20,7 @@ import {
   CardTitle
 } from "@/components/ui/card";
 import { getCurrentStore, getHealth } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import { AuthSummary } from "../auth/auth-summary";
 import { CategoriesPanel } from "./categories-panel";
@@ -386,5 +387,5 @@ function ColorSwatch({ color }: { color: string }) {
 }
 
 function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : null;
+  return error ? parseApiError(error) : null;
 }

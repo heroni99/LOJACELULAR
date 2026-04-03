@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { ArrowLeft } from "lucide-react";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
 import {
   createSaleReturn,
   getSale,
@@ -18,7 +18,9 @@ import {
   listStockLocations,
   type RefundTypeName
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { formatCurrency, parseCurrencyToCents } from "@/lib/format";
+import { success } from "@/lib/toast";
 import {
   AdvancedFeedback,
   advancedSelectClassName,
@@ -115,8 +117,11 @@ export function SaleReturnFormPage() {
             locationId: item.locationId || undefined
           }))
       }),
-    onSuccess: (record) => navigate(`/sale-returns/${record.id}`),
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onSuccess: (record) => {
+      success("Devolucao registrada com sucesso.");
+      navigate(`/sale-returns/${record.id}`);
+    },
+    onError: (error: Error) => setFeedback({ tone: "error", text: parseApiError(error) })
   });
 
   const selectedSale = saleQuery.data;
@@ -131,17 +136,9 @@ export function SaleReturnFormPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Pos-venda"
+        backHref="/sale-returns"
+        subtitle="Crie a devolucao a partir de uma venda real, com retorno opcional ao estoque e reembolso coerente."
         title="Nova devolucao"
-        description="Crie a devolucao a partir de uma venda real, com retorno opcional ao estoque e reembolso coerente."
-        actions={
-          <Button asChild type="button" variant="outline">
-            <Link to="/sale-returns">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar
-            </Link>
-          </Button>
-        }
       />
 
       <AdvancedFeedback feedback={feedback} />
@@ -296,9 +293,14 @@ export function SaleReturnFormPage() {
         ) : null}
 
         <div className="flex justify-end">
-          <Button disabled={createMutation.isPending || !selectedSale} type="submit">
-            {createMutation.isPending ? "Processando..." : "Registrar devolucao"}
-          </Button>
+          <LoadingButton
+            disabled={!selectedSale}
+            isLoading={createMutation.isPending}
+            loadingText="Processando..."
+            type="submit"
+          >
+            Registrar devolucao
+          </LoadingButton>
         </div>
       </form>
     </div>

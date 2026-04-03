@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
-import { AlertCircle, LoaderCircle, ShieldCheck } from "lucide-react";
+import { AlertCircle, ShieldCheck } from "lucide-react";
 import { useForm } from "react-hook-form";
 import {
   loginSchema,
@@ -18,7 +18,9 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { login, resolveApiAssetUrl, type StoreSettings } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 
 type LoginFormProps = {
   onSuccess(session: AuthSession): void;
@@ -46,7 +48,7 @@ export function LoginForm({ onSuccess, store }: LoginFormProps) {
       });
     },
     onError: (error) => {
-      setFormError(error.message);
+      setFormError(parseApiError(error));
     }
   });
 
@@ -131,16 +133,14 @@ export function LoginForm({ onSuccess, store }: LoginFormProps) {
             </div>
           ) : null}
 
-          <Button className="w-full" disabled={loginMutation.isPending} type="submit">
-            {loginMutation.isPending ? (
-              <>
-                <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                Validando acesso...
-              </>
-            ) : (
-              "Entrar"
-            )}
-          </Button>
+          <LoadingButton
+            className="w-full"
+            isLoading={loginMutation.isPending}
+            loadingText="Validando acesso..."
+            type="submit"
+          >
+            Entrar
+          </LoadingButton>
         </form>
       </CardContent>
     </Card>

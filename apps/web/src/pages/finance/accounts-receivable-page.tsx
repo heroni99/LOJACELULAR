@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { LoaderCircle, Pencil, Plus, RefreshCw, Search, WalletCards } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Search, WalletCards } from "lucide-react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { z } from "zod";
 import { useAppSession } from "@/app/session-context";
@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { LoadingButton } from "@/components/ui/loading-button";
 import {
   createAccountsReceivable,
   getServiceOrder,
@@ -20,8 +21,10 @@ import {
   type AccountsReceivableEntry,
   type PaymentMethodName
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { centsToInputValue, formatCurrency } from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 import {
   FeedbackBanner,
   FinancialStatusBadge,
@@ -169,10 +172,7 @@ export function AccountsReceivablePage() {
       return createAccountsReceivable(token, payload);
     },
     onSuccess: async () => {
-      setFeedback({
-        tone: "success",
-        text: editingEntry ? "Conta a receber atualizada." : "Conta a receber criada."
-      });
+      success(editingEntry ? "Conta a receber atualizada." : "Conta a receber criada.");
       setEditingEntry(null);
       setShowForm(false);
       await Promise.all([
@@ -180,7 +180,7 @@ export function AccountsReceivablePage() {
         queryClient.invalidateQueries({ queryKey: ["financial-summary"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const receiveMutation = useMutation({
@@ -195,7 +195,7 @@ export function AccountsReceivablePage() {
       });
     },
     onSuccess: async () => {
-      setFeedback({ tone: "success", text: "Recebimento registrado com sucesso." });
+      success("Recebimento registrado com sucesso.");
       setReceivingEntry(null);
       setReceiveMethod("CASH");
       setReceiveNotes("");
@@ -205,20 +205,20 @@ export function AccountsReceivablePage() {
         queryClient.invalidateQueries({ queryKey: ["cash"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const cancelMutation = useMutation({
     mutationFn: (entry: AccountsReceivableEntry) =>
       updateAccountsReceivable(token, entry.id, { status: "CANCELED" }),
     onSuccess: async () => {
-      setFeedback({ tone: "success", text: "Conta cancelada." });
+      success("Conta cancelada.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["accounts-receivable"] }),
         queryClient.invalidateQueries({ queryKey: ["financial-summary"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const entries = accountsQuery.data ?? [];
@@ -379,10 +379,9 @@ export function AccountsReceivablePage() {
                 >
                   Fechar
                 </Button>
-                <Button disabled={saveMutation.isPending} type="submit">
-                  {saveMutation.isPending ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
+                <LoadingButton isLoading={saveMutation.isPending} loadingText="Aguarde..." type="submit">
                   Salvar conta
-                </Button>
+                </LoadingButton>
               </div>
             </form>
           </CardContent>
@@ -419,10 +418,9 @@ export function AccountsReceivablePage() {
               <Button onClick={() => setReceivingEntry(null)} type="button" variant="outline">
                 Cancelar
               </Button>
-              <Button disabled={receiveMutation.isPending} onClick={() => receiveMutation.mutate()} type="button">
-                {receiveMutation.isPending ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
+              <LoadingButton isLoading={receiveMutation.isPending} loadingText="Aguarde..." onClick={() => receiveMutation.mutate()} type="button">
                 Confirmar recebimento
-              </Button>
+              </LoadingButton>
             </div>
           </CardContent>
         </Card>
@@ -431,7 +429,7 @@ export function AccountsReceivablePage() {
       <Card className="bg-white/90">
         <CardContent className="p-0">
           {accountsQuery.isLoading ? <div className="p-6 text-sm text-muted-foreground">Carregando contas a receber...</div> : null}
-          {accountsQuery.error ? <div className="p-6 text-sm text-red-700">{(accountsQuery.error as Error).message}</div> : null}
+          {accountsQuery.error ? <div className="p-6 text-sm text-red-700">{parseApiError(accountsQuery.error)}</div> : null}
           {entries.length ? (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">

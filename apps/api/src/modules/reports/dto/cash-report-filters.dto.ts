@@ -14,7 +14,11 @@ import {
   CashSessionStatus,
   PaymentMethod
 } from "@prisma/client";
-import { normalizeFormat, trimToUndefined } from "./report-query.utils";
+import {
+  normalizeFormat,
+  resolveQueryDateAlias,
+  trimToUndefined
+} from "./report-query.utils";
 
 export class CashReportFiltersDto {
   @IsOptional()
@@ -35,10 +39,12 @@ export class CashReportFiltersDto {
   paymentMethod?: PaymentMethod;
 
   @IsOptional()
+  @Transform(resolveQueryDateAlias("start"))
   @IsDateString()
   startDate?: string;
 
   @IsOptional()
+  @Transform(resolveQueryDateAlias("end"))
   @IsDateString()
   endDate?: string;
 

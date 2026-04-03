@@ -11,6 +11,7 @@ import {
   type PdvProductResult,
   type ScannerSessionState
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import {
   createScannerSocket,
   scannerSocketEvents,
@@ -72,7 +73,7 @@ export function PdvScannerPanel({
       onFeedback(null);
     },
     onError: (error) => {
-      onFeedback({ tone: "error", text: (error as Error).message });
+      onFeedback({ tone: "error", text: parseApiError(error) });
     }
   });
 
@@ -97,7 +98,7 @@ export function PdvScannerPanel({
       onFeedback({ tone: "success", text: "Scanner desconectado." });
     },
     onError: (error) => {
-      onFeedback({ tone: "error", text: (error as Error).message });
+      onFeedback({ tone: "error", text: parseApiError(error) });
     }
   });
 

@@ -14,8 +14,8 @@ export class SalesController {
 
   @RequirePermissions("sales.read")
   @Get()
-  async findAll(@Query() filters: ListSalesDto) {
-    return this.salesService.findAll(filters);
+  async findAll(@Query() filters: ListSalesDto, @Req() request: AuthenticatedRequest) {
+    return this.salesService.findAll(request.authUser!.storeId, filters);
   }
 
   @RequirePermissions("sales.checkout")
@@ -26,6 +26,7 @@ export class SalesController {
   ) {
     return this.salesService.checkout(payload, {
       userId: request.authUser?.sub ?? null,
+      storeId: request.authUser?.storeId ?? null,
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"]
     });
@@ -33,7 +34,7 @@ export class SalesController {
 
   @RequirePermissions("sales.read")
   @Get(":id")
-  async findById(@Param("id") id: string) {
-    return this.salesService.findById(id);
+  async findById(@Param("id") id: string, @Req() request: AuthenticatedRequest) {
+    return this.salesService.findById(id, request.authUser!.storeId);
   }
 }

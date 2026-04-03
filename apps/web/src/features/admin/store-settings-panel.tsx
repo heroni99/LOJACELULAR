@@ -15,9 +15,13 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
+import { PageLoading } from "@/components/ui/page-loading";
 import { applyZodErrors, readFormCheckbox, readFormString } from "@/lib/form-helpers";
 import { updateStoreSettings, type StoreSettings } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 const hexColorSchema = z
   .string()
@@ -97,17 +101,11 @@ export function StoreSettingsPanel({
       });
     },
     onSuccess: async () => {
-      setFormFeedback({
-        tone: "success",
-        text: "Configuracoes da loja salvas com sucesso."
-      });
+      success("Configuracoes da loja salvas com sucesso.");
       await queryClient.invalidateQueries({ queryKey: ["stores", "current"] });
     },
     onError: (error: Error) => {
-      setFormFeedback({
-        tone: "error",
-        text: error.message
-      });
+      toastError(parseApiError(error));
     }
   });
 
@@ -134,10 +132,7 @@ export function StoreSettingsPanel({
         </CardHeader>
         <CardContent className="space-y-4">
           {isLoading ? (
-            <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/80 p-4 text-sm text-muted-foreground">
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-              Carregando configuracoes atuais da loja...
-            </div>
+            <PageLoading description="Carregando configuracoes atuais da loja..." />
           ) : null}
 
           {errorMessage ? (
@@ -245,19 +240,16 @@ export function StoreSettingsPanel({
               </div>
             ) : null}
 
-            <Button className="w-full" disabled={saveMutation.isPending || !store} type="submit">
-              {saveMutation.isPending ? (
-                <>
-                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                  Salvando configuracoes...
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Salvar configuracoes da loja
-                </>
-              )}
-            </Button>
+            <LoadingButton
+              className="w-full"
+              disabled={!store}
+              isLoading={saveMutation.isPending}
+              loadingText="Salvando configuracoes..."
+              type="submit"
+            >
+              <Save className="mr-2 h-4 w-4" />
+              Salvar configuracoes da loja
+            </LoadingButton>
           </form>
         </CardContent>
       </Card>

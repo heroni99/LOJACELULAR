@@ -52,6 +52,8 @@ export const permissionKeys = [
   "sale-returns.read",
   "sale-returns.create",
   "financial.read",
+  "commissions.read",
+  "commissions.manage",
   "reports.read",
   "audit.read",
   "fiscal.read",

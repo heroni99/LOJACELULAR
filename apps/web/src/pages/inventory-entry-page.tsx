@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, LoaderCircle, PackagePlus } from "lucide-react";
+import { PackagePlus } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/app/page-header";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { useAppSession } from "@/app/session-context";
 import { InventoryFeedback, InventoryFieldError, getInventoryErrorMessage, inventorySelectClassName, inventoryTextareaClassName } from "@/features/inventory/inventory-ui";
 import {
@@ -17,8 +16,10 @@ import {
   listProducts,
   listStockLocations
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { applyZodErrors, readFormString } from "@/lib/form-helpers";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 const inventoryEntrySchema = z.object({
   productId: z.string().uuid("Selecione um produto fisico valido."),
@@ -91,10 +92,9 @@ export function InventoryEntryPage() {
         notes: emptyToUndefined(values.notes)
       }),
     onSuccess: async (result) => {
-      setFeedback({
-        tone: "success",
-        text: `Entrada registrada com sucesso. Saldo no local: ${result.currentQuantity}. Saldo total do produto: ${result.totalStock}.`
-      });
+      success(
+        `Entrada registrada com sucesso. Saldo no local: ${result.currentQuantity}. Saldo total do produto: ${result.totalStock}.`
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["inventory"] }),
         queryClient.invalidateQueries({ queryKey: ["stock-locations"] }),
@@ -110,26 +110,15 @@ export function InventoryEntryPage() {
       });
     },
     onError: (error: Error) => {
-      setFeedback({
-        tone: "error",
-        text: error.message
-      });
+      toastError(parseApiError(error));
     }
   });
 
   return (
     <div className="space-y-6">
       <PageHeader
-        actions={
-          <Button asChild variant="outline">
-            <Link to="/inventory">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar ao estoque
-            </Link>
-          </Button>
-        }
-        description="Lancamento real de entrada: grava movimento, atualiza saldo do local e permanece consistente apos refresh."
-        eyebrow="Estoque"
+        backHref="/inventory"
+        subtitle="Lancamento real de entrada: grava movimento, atualiza saldo do local e permanece consistente apos refresh."
         title="Entrada de estoque"
       />
 
@@ -272,19 +261,15 @@ export function InventoryEntryPage() {
             {feedback ? <InventoryFeedback {...feedback} /> : null}
 
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="flex-1" disabled={saveMutation.isPending} type="submit">
-                {saveMutation.isPending ? (
-                  <>
-                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                    Gravando entrada...
-                  </>
-                ) : (
-                  <>
-                    <PackagePlus className="mr-2 h-4 w-4" />
-                    Registrar entrada
-                  </>
-                )}
-              </Button>
+              <LoadingButton
+                className="flex-1"
+                isLoading={saveMutation.isPending}
+                loadingText="Gravando entrada..."
+                type="submit"
+              >
+                <PackagePlus className="mr-2 h-4 w-4" />
+                Registrar entrada
+              </LoadingButton>
             </div>
           </form>
         </CardContent>

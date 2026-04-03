@@ -59,6 +59,7 @@ O shell autenticado hoje expoe:
 - `service-orders`
 - `purchase-orders`
 - `financial`
+- `commissions`
 - `accounts-payable`
 - `accounts-receivable`
 - `reports`
@@ -88,8 +89,10 @@ O repositorio hoje contem modulos em quatro estados:
 - PDV e sales com checkout transacional
 - fiscal-core interno
 - service-orders core
+- service-order quotes e attachments
 - purchase-orders core
 - sale-returns
+- commissions
 - accounts-payable e accounts-receivable com fluxo operacional real
 
 ### 2. Implementado parcialmente
@@ -107,10 +110,6 @@ O repositorio hoje contem modulos em quatro estados:
 - `fiscal_config`
 - `fiscal_jobs`
 - `fiscal_xml_storage`
-- `service_order_attachments`
-- `service_order_quotes`
-- `sales_commissions`
-- `sales_targets`
 
 ### 4. Nao implementado
 
@@ -199,6 +198,6 @@ O repositorio hoje contem modulos em quatro estados:
 - seed, migrations e docs devem evoluir junto com os fluxos
 - `product_units` pertence operacionalmente ao inventario, nao ao catalogo
 - fiscal-core interno pode evoluir sem fingir emissao fiscal externa pronta
-- `service_order_quotes` e anexos nao contam como modulo pronto so por existirem no schema
+- commissions seguem permission-driven no shell e no backend, sem regra automatica de calculo nesta fase
 
 Para o detalhamento por modulo e classificacao oficial, use `docs/current-state.md`.

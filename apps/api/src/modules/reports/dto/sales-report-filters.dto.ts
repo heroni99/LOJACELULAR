@@ -10,8 +10,12 @@ import {
   Max,
   Min
 } from "class-validator";
-import { SaleStatus } from "@prisma/client";
-import { normalizeFormat, trimToUndefined } from "./report-query.utils";
+import { PaymentMethod, SaleStatus } from "@prisma/client";
+import {
+  normalizeFormat,
+  resolveQueryDateAlias,
+  trimToUndefined
+} from "./report-query.utils";
 
 export class SalesReportFiltersDto {
   @IsOptional()
@@ -34,10 +38,16 @@ export class SalesReportFiltersDto {
   status?: SaleStatus;
 
   @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
+
+  @IsOptional()
+  @Transform(resolveQueryDateAlias("start"))
   @IsDateString()
   startDate?: string;
 
   @IsOptional()
+  @Transform(resolveQueryDateAlias("end"))
   @IsDateString()
   endDate?: string;
 

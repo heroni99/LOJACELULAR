@@ -29,3 +29,24 @@ export const trimToUndefined = ({ value }: { value: unknown }) => {
 
 export const normalizeFormat = ({ value }: { value: unknown }) =>
   typeof value === "string" ? value.trim().toLowerCase() : value;
+
+export const resolveQueryDateAlias =
+  (alias: string) =>
+  ({
+    value,
+    obj
+  }: {
+    value: unknown;
+    obj?: Record<string, unknown>;
+  }) => {
+    const normalizedValue =
+      typeof value === "string" ? value.trim() || undefined : value;
+
+    if (normalizedValue !== undefined) {
+      return normalizedValue;
+    }
+
+    const aliasValue = obj?.[alias];
+
+    return typeof aliasValue === "string" ? aliasValue.trim() || undefined : aliasValue;
+  };

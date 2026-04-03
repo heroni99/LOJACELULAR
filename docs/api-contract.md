@@ -214,12 +214,15 @@ Observacoes:
 - `GET /api/fiscal/documents`
 - `GET /api/fiscal/documents/:id`
 - `POST /api/fiscal/documents/internal-receipt`
+- `POST /api/fiscal/receipt/:saleId/print-link`
+- `GET /api/fiscal/receipt/:saleId`
 - `POST /api/fiscal/documents/:id/cancel`
 - `GET /api/fiscal/report`
 
 Observacoes:
 
 - emite comprovante interno da loja
+- gera HTML termico 80mm para impressao via navegador com URL temporaria assinada
 - nao faz emissao fiscal SEFAZ
 - usa `fiscal_documents` e `fiscal_events` reais
 
@@ -228,14 +231,28 @@ Observacoes:
 - `GET /api/service-orders`
 - `POST /api/service-orders`
 - `GET /api/service-orders/:id`
+- `POST /api/service-orders/:id/receipt/print-link`
+- `GET /api/service-orders/:id/receipt`
 - `PATCH /api/service-orders/:id`
+- `GET /api/service-orders/:id/quotes`
+- `POST /api/service-orders/:id/quotes`
+- `PATCH /api/service-orders/:id/quotes/:quoteId`
+- `POST /api/service-orders/:id/quotes/:quoteId/approve`
+- `POST /api/service-orders/:id/quotes/:quoteId/reject`
+- `GET /api/service-orders/:id/attachments`
+- `POST /api/service-orders/:id/attachments`
+- `DELETE /api/service-orders/:id/attachments/:attachmentId`
 - `POST /api/service-orders/:id/status`
 - `POST /api/service-orders/:id/items/:itemId/consume`
 
 Observacoes:
 
 - create/update manipulam cabecalho e itens operacionais da OS
+- o comprovante imprimivel de OS usa `format=a4|thermal` e abre por URL temporaria assinada
+- create/update de quote recebem `items: [{ description, quantity, unit_price, item_type, product_id? }]` e `notes?`
+- upload de anexos aceita `image/jpeg`, `image/png`, `image/webp` e `application/pdf` com limite de 10 MB
 - historico de status e gravado em `service_order_status_history`
+- so pode existir um orcamento ativo (`PENDING` ou `APPROVED`) por OS
 - consumo de item `PART` afeta estoque real em transacao
 
 ### Purchase orders
@@ -290,6 +307,22 @@ Observacoes:
 - pode vincular a conta a `saleId` e/ou `serviceOrderId`
 - recebimento operacional reflete no resumo financeiro real
 
+### Commissions
+
+- `GET /api/commissions/my-summary`
+- `GET /api/commissions/team-summary`
+- `POST /api/commissions`
+- `GET /api/commissions/targets`
+- `POST /api/commissions/targets`
+
+Observacoes:
+
+- `my-summary` devolve total de comissoes do periodo, total vendido do usuario, meta e lista de registros vinculados a vendas
+- `team-summary` devolve linhas por usuario ativo com venda concluida, comissao registrada ou meta no periodo
+- `POST /api/commissions` registra comissao manual vinculada a um `saleId` e um `userId`
+- `POST /api/commissions/targets` faz upsert por `userId + periodMonth + periodYear`
+- o periodo das comissoes usa `month` e `year`; na ausencia, a API usa o mes corrente da loja
+
 ## Implementado parcialmente
 
 Os grupos abaixo possuem backend e frontend reais, mas ainda seguem em consolidacao do bloco operacional/gerencial.
@@ -325,10 +358,16 @@ Os grupos abaixo possuem backend e frontend reais, mas ainda seguem em consolida
 - `GET /api/reports/stock`
 - `GET /api/reports/cash`
 - `GET /api/reports/customers`
+- `GET /api/reports/export/sales`
+- `GET /api/reports/export/stock`
+- `GET /api/reports/export/cash`
+- `GET /api/reports/export/customers`
 
 Observacoes:
 
 - os reports atuais aceitam `format=csv`
+- as rotas `/api/reports/export/*` retornam o CSV diretamente como arquivo
+- os exports aceitam `start` e `end` como alias de `startDate` e `endDate`
 - os graficos e KPIs atuais usam dados reais do banco
 - o bloco gerencial ainda nao foi marcado como totalmente fechado
 
@@ -341,10 +380,6 @@ Observacoes:
 - `fiscal_config`
 - `fiscal_jobs`
 - `fiscal_xml_storage`
-- `service_order_attachments`
-- `service_order_quotes`
-- `sales_commissions`
-- `sales_targets`
 
 ## Nao implementado
 

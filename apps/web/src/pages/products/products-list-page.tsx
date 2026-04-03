@@ -1,28 +1,28 @@
-import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Eye, PencilLine, Plus, RefreshCw, Search } from "lucide-react";
+import { useDeferredValue, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { RefreshCw } from "lucide-react";
+import { StatusBadge } from "@/components/app/status-badge";
 import { ProductImage } from "@/components/app/product-image";
+import { useAppSession } from "@/app/session-context";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/app/page-header";
+import { type DataTableColumn } from "@/components/ui/data-table";
+import { ListPage } from "@/components/ui/list-page";
 import {
   listCategories,
+  listInventoryBalances,
   listProducts,
   listSuppliers,
-  updateProductActive,
   type Product
 } from "@/lib/api";
-import { formatCompactNumber, formatCurrency } from "@/lib/format";
-import { queryClient } from "@/lib/query-client";
-import { useAppSession } from "@/app/session-context";
+import { formatCurrency } from "@/lib/format";
 
 type ActiveFilter = "all" | "active" | "inactive";
+type StockFilter = "all" | "with-stock" | "without-stock";
 type CatalogMode = "product" | "service";
+type CatalogRow = Product & { totalStock: number };
 
 const selectClassName =
-  "flex h-11 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "flex h-11 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 export function ProductsListPage({
   catalogMode = "product"
@@ -34,8 +34,11 @@ export function ProductsListPage({
   const [categoryId, setCategoryId] = useState("all");
   const [supplierId, setSupplierId] = useState("all");
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>("active");
+  const [stockFilter, setStockFilter] = useState<StockFilter>("all");
+  const deferredSearch = useDeferredValue(search);
   const isServiceCatalog = catalogMode === "service";
-  const catalogLabel = isServiceCatalog ? "Servicos" : "Produtos";
+  const basePath = isServiceCatalog ? "/services" : "/products";
+  const title = isServiceCatalog ? "Servicos" : "Produtos";
   const singularLabel = isServiceCatalog ? "servico" : "produto";
 
   const categoriesQuery = useQuery({
@@ -51,82 +54,211 @@ export function ProductsListPage({
   const productsQuery = useQuery({
     queryKey: [
       "products",
+      "list",
       catalogMode,
-      search,
+      deferredSearch,
       categoryId,
       supplierId,
       activeFilter
     ],
     queryFn: () =>
       listProducts(authEnabled ? session.accessToken : undefined, {
-        search: search.trim() || undefined,
+        search: deferredSearch.trim() || undefined,
         categoryId: categoryId === "all" ? undefined : categoryId,
         supplierId: supplierId === "all" ? undefined : supplierId,
-        active:
-          activeFilter === "all" ? undefined : activeFilter === "active",
+        active: activeFilter === "all" ? undefined : activeFilter === "active",
         isService: isServiceCatalog
       })
   });
-
-  const toggleMutation = useMutation({
-    mutationFn: (product: Product) =>
-      updateProductActive(
-        authEnabled ? session.accessToken : undefined,
-        product.id,
-        !product.active
-      ),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["products"] });
-    }
+  const balancesQuery = useQuery({
+    queryKey: ["inventory", "balances", "products-list", activeFilter],
+    queryFn: () =>
+      listInventoryBalances(authEnabled ? session.accessToken : undefined, {
+        active: activeFilter === "all" ? undefined : activeFilter === "active"
+      }),
+    enabled: !isServiceCatalog
   });
 
-  const products = productsQuery.data ?? [];
+  const totalStockByProductId = useMemo(() => {
+    const entries = (balancesQuery.data ?? []).map((row) => [row.id, row.totalStock] as const);
+    return new Map(entries);
+  }, [balancesQuery.data]);
 
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        actions={
-          <Button asChild>
-            <Link to={isServiceCatalog ? "/services/new" : "/products/new"}>
-              <Plus className="mr-2 h-4 w-4" />
-              {isServiceCatalog ? "Novo servico" : "Novo produto"}
-            </Link>
-          </Button>
-        }
-        description={
-          isServiceCatalog
-            ? "Catalogo de servicos com busca por nome, codigo interno, codigo alternativo, categoria e fornecedor quando aplicavel."
-            : "Catalogo comercial com busca por nome, internal code, supplier code, codigo alternativo e IMEI/serial."
-        }
-        eyebrow="Cadastros"
-        title={catalogLabel}
-      />
+  const rows = useMemo<Array<CatalogRow>>(() => {
+    const catalogRows = (productsQuery.data ?? []).map((product) => ({
+      ...product,
+      totalStock: isServiceCatalog ? 0 : totalStockByProductId.get(product.id) ?? 0
+    }));
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Filtros</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_220px_220px_180px_auto]">
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="product-search">
-              Busca
-            </label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-10"
-                id="product-search"
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                }}
-                placeholder="Nome, internal code, supplier code, codigo alternativo ou IMEI"
-                value={search}
-              />
+    if (isServiceCatalog || stockFilter === "all") {
+      return catalogRows;
+    }
+
+    return catalogRows.filter((product) =>
+      stockFilter === "with-stock" ? product.totalStock > 0 : product.totalStock <= 0
+    );
+  }, [isServiceCatalog, productsQuery.data, stockFilter, totalStockByProductId]);
+
+  const columns = useMemo<Array<DataTableColumn<CatalogRow>>>(() => {
+    const baseColumns: Array<DataTableColumn<CatalogRow>> = [
+      {
+        id: "internalCode",
+        header: "Codigo interno",
+        sortable: true,
+        sortValue: (product) => product.internalCode,
+        cell: (product) => (
+          <div className="space-y-1">
+            <p className="font-semibold text-foreground">{product.internalCode}</p>
+            <p className="text-xs text-muted-foreground">
+              {product.supplierCode || "Sem supplier code"}
+            </p>
+          </div>
+        )
+      },
+      {
+        id: "name",
+        header: isServiceCatalog ? "Servico" : "Produto",
+        sortable: true,
+        sortValue: (product) => product.name,
+        cell: (product) => (
+          <div className="flex items-center gap-3">
+            <ProductImage
+              className="h-12 w-12 shrink-0"
+              imageUrl={product.imageUrl}
+              name={product.name}
+            />
+            <div className="space-y-1">
+              <p className="font-semibold text-foreground">{product.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {product.brand || "Sem marca"}
+                {product.model ? ` / ${product.model}` : ""}
+              </p>
             </div>
           </div>
+        )
+      },
+      {
+        id: "category",
+        header: "Categoria",
+        sortable: true,
+        sortValue: (product) => product.category.name,
+        cell: (product) => (
+          <span className="text-muted-foreground">{product.category.name}</span>
+        )
+      },
+      {
+        id: "price",
+        header: "Preco",
+        sortable: true,
+        sortValue: (product) => product.salePrice,
+        cell: (product) => (
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">{formatCurrency(product.salePrice)}</p>
+            <p className="text-xs text-muted-foreground">
+              custo {formatCurrency(product.costPrice)}
+            </p>
+          </div>
+        )
+      }
+    ];
 
+    if (!isServiceCatalog) {
+      baseColumns.push({
+        id: "stock",
+        header: "Estoque total",
+        sortable: true,
+        sortValue: (product) => product.totalStock,
+        cell: (product) => (
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">{product.totalStock}</p>
+            <p className="text-xs text-muted-foreground">
+              {product.totalStock > 0 ? "Com saldo" : "Sem estoque"}
+            </p>
+          </div>
+        )
+      });
+    }
+
+    baseColumns.push({
+      id: "status",
+      header: "Status",
+      sortable: true,
+      sortValue: (product) => product.active,
+      cell: (product) => (
+        <div className="space-y-1">
+          <StatusBadge tone={product.active ? "green" : "amber"}>
+            {product.active ? "Ativo" : "Inativo"}
+          </StatusBadge>
+          {product.needsPriceReview ? (
+            <p className="text-xs text-amber-700">Revisar preco</p>
+          ) : null}
+        </div>
+      )
+    });
+
+    return baseColumns;
+  }, [isServiceCatalog]);
+
+  return (
+    <ListPage
+      columns={columns}
+      createHref={`${basePath}/new`}
+      createLabel={isServiceCatalog ? "Novo servico" : "Novo produto"}
+      data={rows}
+      description={
+        isServiceCatalog
+          ? "Catalogo de servicos com filtros avancados e detalhe dedicado por item."
+          : "Catalogo de produtos com filtros avancados, estoque total e detalhe dedicado por item."
+      }
+      emptyDescription={`Ajuste a busca ou os filtros para localizar o ${singularLabel} desejado.`}
+      emptyTitle={`Nenhum ${singularLabel} encontrado`}
+      errorMessage={getFirstErrorMessage([
+        productsQuery.error,
+        categoriesQuery.error,
+        suppliersQuery.error,
+        balancesQuery.error
+      ])}
+      filterActions={
+        <Button
+          onClick={() => {
+            void Promise.all([
+              productsQuery.refetch(),
+              categoriesQuery.refetch(),
+              suppliersQuery.refetch(),
+              isServiceCatalog ? Promise.resolve() : balancesQuery.refetch()
+            ]);
+          }}
+          type="button"
+          variant="outline"
+        >
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Atualizar
+        </Button>
+      }
+      getRowHref={(product) => `${basePath}/${product.id}`}
+      initialSort={{ columnId: "internalCode", direction: "asc" }}
+      loading={productsQuery.isLoading || (!isServiceCatalog && balancesQuery.isLoading)}
+      pageResetKey={[
+        catalogMode,
+        deferredSearch,
+        categoryId,
+        supplierId,
+        activeFilter,
+        stockFilter
+      ].join(":")}
+      rowKey={(product) => product.id}
+      searchPlaceholder={
+        isServiceCatalog
+          ? "Buscar por nome ou codigo interno"
+          : "Buscar por nome, codigo interno ou supplier code"
+      }
+      searchValue={search}
+      title={title}
+      onSearchChange={setSearch}
+      advancedFilters={
+        <>
           <SelectField
-            id="product-category-filter"
+            id={`${catalogMode}-category-filter`}
             label="Categoria"
             onChange={setCategoryId}
             options={[
@@ -138,27 +270,10 @@ export function ProductsListPage({
             ]}
             value={categoryId}
           />
-
           <SelectField
-            id="product-supplier-filter"
-            label="Fornecedor"
-            onChange={setSupplierId}
-            options={[
-              { label: "Todos", value: "all" },
-              ...(suppliersQuery.data ?? []).map((supplier) => ({
-                label: supplier.name,
-                value: supplier.id
-              }))
-            ]}
-            value={supplierId}
-          />
-
-          <SelectField
-            id="product-active-filter"
+            id={`${catalogMode}-active-filter`}
             label="Status"
-            onChange={(value) => {
-              setActiveFilter(value as ActiveFilter);
-            }}
+            onChange={(value) => setActiveFilter(value as ActiveFilter)}
             options={[
               { label: "Somente ativos", value: "active" },
               { label: "Somente inativos", value: "inactive" },
@@ -166,207 +281,35 @@ export function ProductsListPage({
             ]}
             value={activeFilter}
           />
-
-          <div className="flex items-end">
-            <Button
-              className="w-full"
-              onClick={() => {
-                void productsQuery.refetch();
-              }}
-              type="button"
-              variant="outline"
-            >
-              <RefreshCw className="mr-2 h-4 w-4" />
-              Atualizar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-3">
-        <SummaryTile label={`${catalogLabel} visiveis`} value={formatCompactNumber(products.length)} />
-        <SummaryTile
-          label={isServiceCatalog ? "Servicos ativos" : "Itens para revisar preco"}
-          value={formatCompactNumber(
-            isServiceCatalog
-              ? products.filter((product) => product.active).length
-              : products.filter((product) => product.needsPriceReview).length
-          )}
-        />
-        <SummaryTile
-          label={isServiceCatalog ? "Sem fornecedor" : "Com codigos alternativos"}
-          value={formatCompactNumber(
-            isServiceCatalog
-              ? products.filter((product) => !product.supplierId).length
-              : products.filter((product) => product.codes.length > 0).length
-          )}
-        />
-      </div>
-
-      <Card className="bg-white/90">
-        <CardContent className="p-0">
-          {productsQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">Carregando catalogo...</div>
+          {!isServiceCatalog ? (
+            <SelectField
+              id="product-stock-filter"
+              label="Estoque"
+              onChange={(value) => setStockFilter(value as StockFilter)}
+              options={[
+                { label: "Todos", value: "all" },
+                { label: "Com estoque", value: "with-stock" },
+                { label: "Sem estoque", value: "without-stock" }
+              ]}
+              value={stockFilter}
+            />
           ) : null}
-
-          {productsQuery.error ? (
-            <div className="p-6 text-sm text-red-700">
-              {(productsQuery.error as Error).message}
-            </div>
-          ) : null}
-
-          {!productsQuery.isLoading && !products.length ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              Nenhum {singularLabel} encontrado com os filtros atuais.
-            </div>
-          ) : null}
-
-          {products.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-border/70 bg-secondary/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Codigo</th>
-                    <th className="px-4 py-3 font-medium">{isServiceCatalog ? "Servico" : "Produto"}</th>
-                    <th className="px-4 py-3 font-medium">Categoria</th>
-                    <th className="px-4 py-3 font-medium">Fornecedor</th>
-                    <th className="px-4 py-3 font-medium">Precos</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium text-right">Acoes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((product) => (
-                    <tr key={product.id} className="border-b border-border/60 align-top">
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p className="font-semibold">{product.internalCode}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {product.supplierCode || "Sem supplier_code"}
-                          </p>
-                          {product.codes[0] ? (
-                            <p className="text-xs text-muted-foreground">
-                              alt. principal {product.codes[0].code}
-                            </p>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex items-center gap-3">
-                          <ProductImage
-                            className="h-14 w-14 shrink-0"
-                            imageUrl={product.imageUrl}
-                            name={product.name}
-                          />
-                          <div className="space-y-1">
-                            <p className="font-semibold">{product.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {product.brand || "Sem marca"}
-                              {product.model ? ` / ${product.model}` : ""}
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {product.category.name}
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {product.supplier?.tradeName || product.supplier?.name || "Sem fornecedor"}
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p className="font-medium">{formatCurrency(product.salePrice)}</p>
-                          <p className="text-xs text-muted-foreground">
-                            custo {formatCurrency(product.costPrice)}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <StatusBadge tone={product.active ? "green" : "amber"}>
-                            {product.active ? "Ativo" : "Inativo"}
-                          </StatusBadge>
-                          {product.isService ? (
-                            <StatusBadge tone="slate">Servico</StatusBadge>
-                          ) : null}
-                          {product.needsPriceReview ? (
-                            <StatusBadge tone="orange">Revisar preco</StatusBadge>
-                          ) : null}
-                          {product.codes.length ? (
-                            <StatusBadge tone="slate">{product.codes.length} codigos</StatusBadge>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex justify-end gap-2">
-                          <Button asChild size="sm" variant="outline">
-                            <Link to={`${isServiceCatalog ? "/services" : "/products"}/${product.id}`}>
-                              <Eye className="mr-2 h-4 w-4" />
-                              Ver
-                            </Link>
-                          </Button>
-                          <Button asChild size="sm" variant="outline">
-                            <Link to={`${isServiceCatalog ? "/services" : "/products"}/${product.id}/edit`}>
-                              <PencilLine className="mr-2 h-4 w-4" />
-                              Editar
-                            </Link>
-                          </Button>
-                          <Button
-                            disabled={toggleMutation.isPending}
-                            onClick={() => {
-                              toggleMutation.mutate(product);
-                            }}
-                            size="sm"
-                            type="button"
-                            variant="outline"
-                          >
-                            {product.active ? "Inativar" : "Ativar"}
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function SummaryTile({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="bg-white/90">
-      <CardContent className="space-y-2 p-5">
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="text-3xl font-black tracking-tight">{value}</p>
-      </CardContent>
-    </Card>
-  );
-}
-
-function StatusBadge({
-  children,
-  tone
-}: {
-  children: ReactNode;
-  tone: "green" | "amber" | "orange" | "slate";
-}) {
-  const toneClassName = {
-    green: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    amber: "border-amber-200 bg-amber-50 text-amber-700",
-    orange: "border-orange-200 bg-orange-50 text-orange-700",
-    slate: "border-slate-200 bg-slate-50 text-slate-700"
-  }[tone];
-
-  return (
-    <span
-      className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${toneClassName}`}
-    >
-      {children}
-    </span>
+          <SelectField
+            id={`${catalogMode}-supplier-filter`}
+            label="Fornecedor"
+            onChange={setSupplierId}
+            options={[
+              { label: "Todos", value: "all" },
+              ...(suppliersQuery.data ?? []).map((supplier) => ({
+                label: supplier.tradeName || supplier.name,
+                value: supplier.id
+              }))
+            ]}
+            value={supplierId}
+          />
+        </>
+      }
+    />
   );
 }
 
@@ -380,7 +323,7 @@ function SelectField({
   id: string;
   label: string;
   onChange(nextValue: string): void;
-  options: { label: string; value: string }[];
+  options: Array<{ label: string; value: string }>;
   value: string;
 }) {
   return (
@@ -391,9 +334,7 @@ function SelectField({
       <select
         className={selectClassName}
         id={id}
-        onChange={(event) => {
-          onChange(event.target.value);
-        }}
+        onChange={(event) => onChange(event.target.value)}
         value={value}
       >
         {options.map((option) => (
@@ -404,4 +345,9 @@ function SelectField({
       </select>
     </div>
   );
+}
+
+function getFirstErrorMessage(errors: unknown[]) {
+  const firstError = errors.find((error): error is Error => error instanceof Error);
+  return firstError?.message ?? null;
 }

@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { LoaderCircle, MapPinPlus, PencilLine, RefreshCw, Search } from "lucide-react";
+import { MapPinPlus, PencilLine, RefreshCw, Search } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { PageHeader } from "@/components/app/page-header";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { useAppSession } from "@/app/session-context";
 import { InventoryFeedback, InventoryFieldError, getInventoryErrorMessage, inventorySelectClassName, inventoryTextareaClassName } from "@/features/inventory/inventory-ui";
 import {
@@ -17,9 +18,11 @@ import {
   updateStockLocation,
   type StockLocation
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { formatCompactNumber } from "@/lib/format";
 import { applyZodErrors, readFormCheckbox, readFormString } from "@/lib/form-helpers";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 const stockLocationFormSchema = z.object({
   name: z.string().trim().min(1, "Informe o nome do local."),
@@ -94,12 +97,11 @@ export function StockLocationsPage() {
       return createStockLocation(session.accessToken, payload);
     },
     onSuccess: async (location) => {
-      setFormFeedback({
-        tone: "success",
-        text: editingLocation
+      success(
+        editingLocation
           ? `Local ${location.name} atualizado com sucesso.`
           : `Local ${location.name} cadastrado com sucesso.`
-      });
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["stock-locations"] }),
         queryClient.invalidateQueries({ queryKey: ["inventory"] })
@@ -108,10 +110,7 @@ export function StockLocationsPage() {
       form.reset(emptyStockLocationForm);
     },
     onError: (error: Error) => {
-      setFormFeedback({
-        tone: "error",
-        text: error.message
-      });
+      toastError(parseApiError(error));
     }
   });
 
@@ -355,19 +354,15 @@ export function StockLocationsPage() {
               {formFeedback ? <InventoryFeedback {...formFeedback} /> : null}
 
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button className="flex-1" disabled={saveMutation.isPending} type="submit">
-                  {saveMutation.isPending ? (
-                    <>
-                      <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                      Salvando...
-                    </>
-                  ) : (
-                    <>
-                      <MapPinPlus className="mr-2 h-4 w-4" />
-                      {editingLocation ? "Salvar alteracoes" : "Cadastrar local"}
-                    </>
-                  )}
-                </Button>
+                <LoadingButton
+                  className="flex-1"
+                  isLoading={saveMutation.isPending}
+                  loadingText="Salvando..."
+                  type="submit"
+                >
+                  <MapPinPlus className="mr-2 h-4 w-4" />
+                  {editingLocation ? "Salvar alteracoes" : "Cadastrar local"}
+                </LoadingButton>
 
                 {editingLocation ? (
                   <Button

@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, LoaderCircle, Save } from "lucide-react";
-import { useForm, type UseFormRegisterReturn } from "react-hook-form";
+import {
+  Controller,
+  useForm,
+  type Control,
+  type FieldPath,
+  type FieldValues,
+  type UseFormRegisterReturn
+} from "react-hook-form";
 import { z } from "zod";
-import { PageHeader } from "@/components/app/page-header";
 import { ProductImage } from "@/components/app/product-image";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { DetailCard } from "@/components/ui/detail-card";
+import { FormPage } from "@/components/ui/form-page";
+import { FormSection } from "@/components/ui/form-section";
 import { Input } from "@/components/ui/input";
-import { ProductCodesCard } from "./product-codes-card";
+import { useAppSession } from "@/app/session-context";
 import {
   createProduct,
   getProduct,
@@ -19,17 +25,24 @@ import {
   uploadProductImage,
   updateProduct
 } from "@/lib/api";
-import { applyZodErrors, readFormCheckbox, readFormString } from "@/lib/form-helpers";
-import { centsToInputValue, parseCurrencyToCents, parseInteger } from "@/lib/format";
+import { parseApiError } from "@/lib/api-error";
+import {
+  formatCurrencyInput,
+  formatCurrencyInputFromDigits,
+  parseCurrencyToCents,
+  parseInteger
+} from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
-import { useAppSession } from "@/app/session-context";
+import { success } from "@/lib/toast";
+import { cn } from "@/lib/utils";
+import { ProductCodesCard } from "./product-codes-card";
 
 const checkboxClassName =
   "h-4 w-4 rounded border border-input text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const selectClassName =
-  "flex h-11 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "flex h-11 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 const textareaClassName =
-  "min-h-[120px] w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "min-h-[120px] w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
 type CatalogMode = "product" | "service";
 
@@ -37,8 +50,8 @@ const currencyFieldSchema = z
   .string()
   .trim()
   .min(1, "Informe um valor.")
-  .refine((value) => Number.isFinite(Number(value.replace(",", "."))), {
-    message: "Informe um numero valido."
+  .refine((value) => /\d/.test(value), {
+    message: "Informe um valor valido."
   });
 
 const integerFieldSchema = z
@@ -96,13 +109,13 @@ export function ProductFormPage({
   catalogMode?: CatalogMode;
 }) {
   const { id } = useParams();
-  const isEditing = Boolean(id);
   const navigate = useNavigate();
   const { authEnabled, session } = useAppSession();
-  const [formError, setFormError] = useState<string | null>(null);
+  const isEditing = Boolean(id);
+  const forcedServiceMode = catalogMode === "service";
   const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
-  const forcedServiceMode = catalogMode === "service";
+  const [formError, setFormError] = useState<string | null>(null);
 
   const form = useForm<ProductFormValues>({
     resolver: zodResolver(productFormSchema),
@@ -114,8 +127,8 @@ export function ProductFormPage({
       brand: "",
       model: "",
       supplierCode: "",
-      costPrice: "0.00",
-      salePrice: "0.00",
+      costPrice: formatCurrencyInput(0),
+      salePrice: formatCurrencyInput(0),
       stockMin: "0",
       hasSerialControl: false,
       needsPriceReview: false,
@@ -139,10 +152,12 @@ export function ProductFormPage({
     queryFn: () => getProduct(authEnabled ? session.accessToken : undefined, id ?? ""),
     enabled: isEditing
   });
-  const isServiceItem = productQuery.data?.isService ?? forcedServiceMode;
+
+  const isServiceItem = productQuery.data?.isService ?? form.watch("isService") ?? forcedServiceMode;
   const basePath =
-    productQuery.data?.isService || forcedServiceMode ? "/services" : "/products";
+    productQuery.data?.isService || forcedServiceMode || isServiceItem ? "/services" : "/products";
   const singularLabel = isServiceItem ? "servico" : "produto";
+  const destinationHref = isEditing && id ? `${basePath}/${id}` : basePath;
 
   useEffect(() => {
     if (!productQuery.data) {
@@ -157,8 +172,8 @@ export function ProductFormPage({
       brand: productQuery.data.brand ?? "",
       model: productQuery.data.model ?? "",
       supplierCode: productQuery.data.supplierCode ?? "",
-      costPrice: centsToInputValue(productQuery.data.costPrice),
-      salePrice: centsToInputValue(productQuery.data.salePrice),
+      costPrice: formatCurrencyInput(productQuery.data.costPrice),
+      salePrice: formatCurrencyInput(productQuery.data.salePrice),
       stockMin: String(productQuery.data.stockMin),
       hasSerialControl: productQuery.data.hasSerialControl,
       needsPriceReview: productQuery.data.needsPriceReview,
@@ -166,6 +181,14 @@ export function ProductFormPage({
       active: productQuery.data.active
     });
   }, [forcedServiceMode, form, productQuery.data]);
+
+  useEffect(() => {
+    if (!forcedServiceMode) {
+      return;
+    }
+
+    form.setValue("isService", true);
+  }, [forcedServiceMode, form]);
 
   useEffect(() => {
     if (!isServiceItem) {
@@ -201,11 +224,11 @@ export function ProductFormPage({
       const payload = {
         categoryId: values.categoryId,
         supplierId: values.supplierId || undefined,
-        name: values.name,
-        description: values.description || undefined,
-        brand: values.brand || undefined,
-        model: values.model || undefined,
-        supplierCode: values.supplierCode || undefined,
+        name: values.name.trim(),
+        description: emptyToUndefined(values.description),
+        brand: emptyToUndefined(values.brand),
+        model: emptyToUndefined(values.model),
+        supplierCode: emptyToUndefined(values.supplierCode),
         costPrice: parseCurrencyToCents(values.costPrice),
         salePrice: parseCurrencyToCents(values.salePrice),
         stockMin: isServiceItem ? 0 : parseInteger(values.stockMin),
@@ -224,188 +247,136 @@ export function ProductFormPage({
       }
 
       if (imageFile) {
-        return uploadProductImage(authEnabled ? session.accessToken : undefined, product.id, imageFile);
+        return uploadProductImage(
+          authEnabled ? session.accessToken : undefined,
+          product.id,
+          imageFile
+        );
       }
 
       return product;
     },
     onSuccess: async (product) => {
       setFormError(null);
-      await queryClient.invalidateQueries({ queryKey: ["products"] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["products"] }),
+        queryClient.invalidateQueries({ queryKey: ["products", "detail", product.id] })
+      ]);
+
+      success(
+        isEditing
+          ? `${isServiceItem ? "Servico" : "Produto"} atualizado com sucesso.`
+          : `${isServiceItem ? "Servico" : "Produto"} criado com sucesso.`,
+        {
+          href: `${product.isService ? "/services" : "/products"}/${product.id}`,
+          linkLabel: "Ver registro"
+        }
+      );
+
       navigate(`${product.isService ? "/services" : "/products"}/${product.id}`);
     },
     onError: (error: Error) => {
-      setFormError(error.message);
+      setFormError(parseApiError(error));
     }
   });
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        actions={
-          <Button asChild variant="outline">
-            <Link to={isEditing && id ? `${basePath}/${id}` : basePath}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar
-            </Link>
-          </Button>
-        }
-        description={
-          isEditing
-            ? `Ajuste dados comerciais, preco e flags operacionais do ${singularLabel}.`
-            : `Cadastre um novo ${singularLabel} com categoria, fornecedor e precos reais.`
-        }
-        eyebrow="Cadastros"
-        title={isEditing ? `Editar ${singularLabel}` : `Novo ${singularLabel}`}
-      />
-
-      <Card className="bg-white/90">
-        <CardContent className="space-y-6 p-6">
-          {productQuery.isLoading ? (
-            <div className="flex items-center gap-3 text-sm text-muted-foreground">
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-              Carregando produto...
-            </div>
-          ) : null}
-
-          {formError ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {formError}
-            </div>
-          ) : null}
-
-          <form
-            className="space-y-6"
-            onSubmit={(event) => {
-              event.preventDefault();
-              setFormError(null);
-              const parsed = productFormSchema.safeParse(
-                readProductFormValues(event.currentTarget)
-              );
-
-              if (!parsed.success) {
-                applyZodErrors(form, parsed.error);
-                setFormError("Revise os campos destacados antes de salvar o produto.");
-                return;
-              }
-
-              form.clearErrors();
-              saveMutation.mutate({
-                values: parsed.data,
-                imageFile: selectedImageFile
-              });
-            }}
-          >
-            <div className="grid gap-4 xl:grid-cols-2">
-              <SelectInput
-                id="product-category"
-                label="Categoria"
-                options={[
-                  { label: "Selecione", value: "" },
-                  ...(categoriesQuery.data ?? []).map((category) => ({
-                    label: category.name,
-                    value: category.id
-                  }))
-                ]}
-                error={form.formState.errors.categoryId?.message}
-                registration={form.register("categoryId")}
+    <FormPage
+      backHref={basePath}
+      backLabel={isServiceItem ? "Servicos" : "Produtos"}
+      cancelHref={destinationHref}
+      errorMessage={
+        getFirstErrorMessage([
+          productQuery.error,
+          categoriesQuery.error,
+          suppliersQuery.error
+        ]) ?? formError
+      }
+      formId="product-form"
+      loading={isEditing && productQuery.isLoading}
+      loadingMessage={`Carregando ${singularLabel}...`}
+      saveDisabled={
+        Boolean(productQuery.error) ||
+        Boolean(categoriesQuery.error) ||
+        Boolean(suppliersQuery.error)
+      }
+      saveLabel={isServiceItem ? "Salvar servico" : "Salvar produto"}
+      saving={saveMutation.isPending}
+      subtitle={
+        isEditing
+          ? `Ajuste dados comerciais e operacionais do ${singularLabel} em uma tela dedicada.`
+          : `Cadastre um novo ${singularLabel} em secoes separadas, sem dividir espaco com a listagem.`
+      }
+      title={isEditing ? `Editar ${singularLabel}` : `Novo ${singularLabel}`}
+      onSubmit={form.handleSubmit((values) => {
+        setFormError(null);
+        saveMutation.mutate({
+          values,
+          imageFile: selectedImageFile
+        });
+      })}
+    >
+      <DetailCard title="Identificacao">
+        <FormSection title="Identificacao">
+          <TextField
+            error={form.formState.errors.name?.message}
+            label="Nome *"
+            registration={form.register("name")}
+          />
+          <SelectField
+            error={form.formState.errors.categoryId?.message}
+            label="Categoria *"
+            options={[
+              { label: "Selecione", value: "" },
+              ...(categoriesQuery.data ?? []).map((category) => ({
+                label: category.name,
+                value: category.id
+              }))
+            ]}
+            registration={form.register("categoryId")}
+          />
+          <SelectField
+            error={form.formState.errors.supplierId?.message}
+            label="Fornecedor"
+            options={[
+              { label: "Sem fornecedor", value: "" },
+              ...(suppliersQuery.data ?? []).map((supplier) => ({
+                label: supplier.tradeName || supplier.name,
+                value: supplier.id
+              }))
+            ]}
+            registration={form.register("supplierId")}
+          />
+          <TextField
+            error={form.formState.errors.brand?.message}
+            label="Marca"
+            registration={form.register("brand")}
+          />
+          <TextField
+            error={form.formState.errors.model?.message}
+            label="Modelo"
+            registration={form.register("model")}
+          />
+          <TextAreaField
+            className="md:col-span-2"
+            error={form.formState.errors.description?.message}
+            label="Descricao"
+            registration={form.register("description")}
+          />
+          <div className="space-y-4 md:col-span-2">
+            <label className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+              Imagem
+            </label>
+            <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
+              <ProductImage
+                className="h-40 w-40"
+                imageUrl={imagePreviewUrl ?? productQuery.data?.imageUrl}
+                name={form.watch("name") || productQuery.data?.name || singularLabel}
               />
-
-              <SelectInput
-                id="product-supplier"
-                label="Fornecedor"
-                options={[
-                  { label: "Sem fornecedor", value: "" },
-                  ...(suppliersQuery.data ?? []).map((supplier) => ({
-                    label: supplier.name,
-                    value: supplier.id
-                  }))
-                ]}
-                error={form.formState.errors.supplierId?.message}
-                registration={form.register("supplierId")}
-              />
-
-              <Field
-                error={form.formState.errors.name?.message}
-                id="product-name"
-                label="Nome"
-                registration={form.register("name")}
-                type="text"
-              />
-              <Field
-                error={form.formState.errors.supplierCode?.message}
-                id="product-supplier-code"
-                label="Supplier code"
-                registration={form.register("supplierCode")}
-                type="text"
-              />
-              <Field
-                error={form.formState.errors.brand?.message}
-                id="product-brand"
-                label="Marca"
-                registration={form.register("brand")}
-                type="text"
-              />
-              <Field
-                error={form.formState.errors.model?.message}
-                id="product-model"
-                label="Modelo"
-                registration={form.register("model")}
-                type="text"
-              />
-              <Field
-                error={form.formState.errors.costPrice?.message}
-                id="product-cost"
-                label="Custo (R$)"
-                registration={form.register("costPrice")}
-                type="number"
-              />
-              <Field
-                error={form.formState.errors.salePrice?.message}
-                id="product-sale"
-                label="Venda (R$)"
-                registration={form.register("salePrice")}
-                type="number"
-              />
-              <Field
-                disabled={isServiceItem}
-                error={form.formState.errors.stockMin?.message}
-                id="product-stock-min"
-                label="Estoque minimo"
-                registration={form.register("stockMin")}
-                type="number"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="product-description">
-                Descricao
-              </label>
-              <textarea
-                className={textareaClassName}
-                id="product-description"
-                {...form.register("description")}
-              />
-              <FieldError message={form.formState.errors.description?.message} />
-            </div>
-
-            <div className="grid gap-4 xl:grid-cols-[180px_minmax(0,1fr)]">
-              <div className="space-y-3">
-                <p className="text-sm font-medium">Foto do produto</p>
-                <ProductImage
-                  className="h-44 w-44"
-                  imageUrl={imagePreviewUrl ?? productQuery.data?.imageUrl}
-                  name={form.watch("name") || productQuery.data?.name || "produto"}
-                />
-              </div>
 
               <div className="space-y-3">
-                <label className="text-sm font-medium" htmlFor="product-image">
-                  Anexar imagem
-                </label>
                 <Input
                   accept="image/png,image/jpeg,image/webp,image/gif"
-                  id="product-image"
                   onChange={(event) => {
                     const file = event.target.files?.[0] ?? null;
 
@@ -420,9 +391,8 @@ export function ProductFormPage({
                   }}
                   type="file"
                 />
-                <p className="text-sm text-muted-foreground">
-                  A foto e opcional e pode ser escolhida diretamente do seu computador.
-                  Ao salvar o produto, a imagem fica anexada ao cadastro.
+                <p className="text-sm leading-6" style={{ color: "var(--color-text-muted)" }}>
+                  O upload de imagem continua disponivel neste fluxo. Ao salvar, o arquivo fica anexado ao cadastro.
                 </p>
                 {selectedImageFile ? (
                   <p className="text-sm font-medium text-primary">
@@ -431,44 +401,96 @@ export function ProductFormPage({
                 ) : null}
               </div>
             </div>
+          </div>
+        </FormSection>
+      </DetailCard>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <CheckboxField
-                id="product-active"
-                label={`${isServiceItem ? "Servico" : "Produto"} ativo`}
-                registration={form.register("active")}
-              />
-              <CheckboxField
-                disabled={isServiceItem}
-                id="product-serial"
-                label="Controla serial"
-                registration={form.register("hasSerialControl")}
-              />
-              <CheckboxField
-                id="product-review"
-                label="Revisar preco"
-                registration={form.register("needsPriceReview")}
-              />
-              <div className="rounded-2xl border border-primary/15 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-                {isServiceItem
-                  ? "Este cadastro grava um servico no catalogo e nao depende de estoque."
-                  : "Este cadastro grava um produto fisico com custo, venda e relacao opcional com fornecedor."}
-              </div>
-            </div>
+      <DetailCard title="Codigos">
+        <FormSection title="Codigos">
+          <ReadOnlyField
+            label="Internal code"
+            value={productQuery.data?.internalCode || "Gerado automaticamente ao salvar"}
+          />
+          <TextField
+            error={form.formState.errors.supplierCode?.message}
+            label="Supplier code"
+            registration={form.register("supplierCode")}
+          />
+        </FormSection>
+      </DetailCard>
 
-            <div className="flex justify-end">
-              <Button disabled={saveMutation.isPending} type="submit">
-                {saveMutation.isPending ? (
-                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="mr-2 h-4 w-4" />
-                )}
-                {isServiceItem ? "Salvar servico" : "Salvar produto"}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      <DetailCard title="Precos">
+        <FormSection title="Precos">
+          <CurrencyField
+            control={form.control}
+            error={form.formState.errors.costPrice?.message}
+            label="Custo *"
+            name="costPrice"
+          />
+          <CurrencyField
+            control={form.control}
+            error={form.formState.errors.salePrice?.message}
+            label="Preco de venda *"
+            name="salePrice"
+          />
+          <TextField
+            disabled={isServiceItem}
+            error={form.formState.errors.stockMin?.message}
+            label="Estoque minimo"
+            registration={form.register("stockMin")}
+            type="number"
+          />
+        </FormSection>
+      </DetailCard>
+
+      <DetailCard title="Fiscal">
+        <FormSection title="Fiscal">
+          <ReadOnlyField label="NCM" value={productQuery.data?.ncm || "Nao informado"} />
+          <ReadOnlyField label="CEST" value={productQuery.data?.cest || "Nao informado"} />
+          <ReadOnlyField
+            label="CFOP"
+            value={productQuery.data?.cfopDefault || "Nao informado"}
+          />
+          <ReadOnlyField
+            label="Origem"
+            value={productQuery.data?.originCode || "Nao informado"}
+          />
+          <ReadOnlyField
+            className="md:col-span-2"
+            label="Categoria tributaria"
+            value={productQuery.data?.taxCategory || "Nao informada"}
+          />
+          <div
+            className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm leading-6 md:col-span-2"
+            style={{ color: "var(--color-text-muted)" }}
+          >
+            Os campos fiscais foram expostos nesta tela, mas o contrato atual de criacao/edicao de produtos ainda nao recebe esses valores para persistencia.
+          </div>
+        </FormSection>
+      </DetailCard>
+
+      <DetailCard title="Configuracoes">
+        <FormSection title="Configuracoes">
+          <CheckboxField
+            disabled={isServiceItem}
+            label="Serializado"
+            registration={form.register("hasSerialControl")}
+          />
+          <CheckboxField
+            disabled
+            label="Servico"
+            registration={form.register("isService")}
+          />
+          <CheckboxField
+            label="Revisao de preco"
+            registration={form.register("needsPriceReview")}
+          />
+          <CheckboxField
+            label="Ativo"
+            registration={form.register("active")}
+          />
+        </FormSection>
+      </DetailCard>
 
       {isEditing ? (
         productQuery.data ? (
@@ -479,68 +501,81 @@ export function ProductFormPage({
           />
         ) : null
       ) : (
-        <Card className="bg-white/90">
-          <CardContent className="p-6 text-sm leading-6 text-muted-foreground">
-            Salve o {singularLabel} primeiro para gerenciar codigos alternativos reais,
-            como EAN, etiqueta interna em barras e codigo de fabricante.
-          </CardContent>
-        </Card>
+        <DetailCard title="Codigos alternativos">
+          <div className="text-sm leading-6" style={{ color: "var(--color-text-muted)" }}>
+            Salve o {singularLabel} primeiro para gerenciar codigos alternativos reais, como EAN, etiqueta interna e codigo de fabricante.
+          </div>
+        </DetailCard>
       )}
-    </div>
+    </FormPage>
   );
 }
 
-function Field({
-  id,
+function TextField({
   label,
   registration,
-  type,
   error,
-  disabled
+  type = "text",
+  disabled,
+  className
 }: {
-  id: string;
   label: string;
   registration: UseFormRegisterReturn;
-  type: string;
   error?: string;
+  type?: string;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
-    <div className="space-y-2">
-      <label className="text-sm font-medium" htmlFor={id}>
+    <div className={cn("space-y-2", className)}>
+      <label className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
         {label}
       </label>
-      <Input
-        disabled={disabled}
-        id={id}
-        step={type === "number" ? "0.01" : undefined}
-        type={type}
-        {...registration}
-      />
+      <Input disabled={disabled} step={type === "number" ? "1" : undefined} type={type} {...registration} />
       <FieldError message={error} />
     </div>
   );
 }
 
-function SelectInput({
-  id,
+function TextAreaField({
+  label,
+  registration,
+  error,
+  className
+}: {
+  label: string;
+  registration: UseFormRegisterReturn;
+  error?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-2", className)}>
+      <label className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+        {label}
+      </label>
+      <textarea className={textareaClassName} {...registration} />
+      <FieldError message={error} />
+    </div>
+  );
+}
+
+function SelectField({
   label,
   options,
   registration,
   error
 }: {
-  id: string;
   label: string;
-  options: { label: string; value: string }[];
+  options: Array<{ label: string; value: string }>;
   registration: UseFormRegisterReturn;
   error?: string;
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium" htmlFor={id}>
+      <label className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
         {label}
       </label>
-      <select className={selectClassName} id={id} {...registration}>
+      <select className={selectClassName} {...registration}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
@@ -552,61 +587,92 @@ function SelectInput({
   );
 }
 
+function CurrencyField<TFieldValues extends FieldValues>({
+  control,
+  name,
+  label,
+  error
+}: {
+  control: Control<TFieldValues>;
+  name: FieldPath<TFieldValues>;
+  label: string;
+  error?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+        {label}
+      </label>
+      <Controller
+        control={control}
+        name={name}
+        render={({ field }) => (
+          <Input
+            inputMode="numeric"
+            onBlur={field.onBlur}
+            onChange={(event) => field.onChange(formatCurrencyInputFromDigits(event.target.value))}
+            ref={field.ref}
+            value={field.value ?? formatCurrencyInput(0)}
+          />
+        )}
+      />
+      <FieldError message={error} />
+    </div>
+  );
+}
+
 function CheckboxField({
-  id,
   label,
   registration,
   disabled
 }: {
-  id: string;
   label: string;
   registration: UseFormRegisterReturn;
   disabled?: boolean;
 }) {
   return (
     <label
-      className={`flex items-center gap-3 rounded-2xl border border-border/70 bg-secondary/30 px-4 py-3 text-sm font-medium ${
-        disabled ? "cursor-not-allowed opacity-65" : ""
-      }`}
-      htmlFor={id}
+      className={cn(
+        "flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm",
+        disabled ? "cursor-not-allowed opacity-70" : undefined
+      )}
+      style={{ color: "var(--color-text)" }}
     >
-      <input
-        className={checkboxClassName}
-        disabled={disabled}
-        id={id}
-        type="checkbox"
-        {...registration}
-      />
+      <input className={checkboxClassName} disabled={disabled} type="checkbox" {...registration} />
       {label}
     </label>
   );
 }
 
-function FieldError({ message }: { message?: string }) {
-  if (!message) {
-    return null;
-  }
-
-  return <p className="text-sm text-red-600">{message}</p>;
+function ReadOnlyField({
+  label,
+  value,
+  className
+}: {
+  label: string;
+  value: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-2", className)}>
+      <label className="text-sm font-medium" style={{ color: "var(--color-text)" }}>
+        {label}
+      </label>
+      <Input disabled readOnly value={value} />
+    </div>
+  );
 }
 
-function readProductFormValues(formElement: HTMLFormElement): ProductFormValues {
-  const formData = new FormData(formElement);
+function FieldError({ message }: { message?: string }) {
+  return message ? <p className="text-sm text-red-400">{message}</p> : null;
+}
 
-  return {
-    categoryId: readFormString(formData, "categoryId"),
-    supplierId: readFormString(formData, "supplierId"),
-    name: readFormString(formData, "name"),
-    description: readFormString(formData, "description"),
-    brand: readFormString(formData, "brand"),
-    model: readFormString(formData, "model"),
-    supplierCode: readFormString(formData, "supplierCode"),
-    costPrice: readFormString(formData, "costPrice"),
-    salePrice: readFormString(formData, "salePrice"),
-    stockMin: readFormString(formData, "stockMin"),
-    hasSerialControl: readFormCheckbox(formData, "hasSerialControl"),
-    needsPriceReview: readFormCheckbox(formData, "needsPriceReview"),
-    isService: readFormCheckbox(formData, "isService"),
-    active: readFormCheckbox(formData, "active")
-  };
+function emptyToUndefined(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function getFirstErrorMessage(errors: unknown[]) {
+  const firstError = errors.find((error) => Boolean(error));
+  return firstError ? parseApiError(firstError) : null;
 }

@@ -1,4 +1,12 @@
-import { Controller, Get, Query, Req, Res, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Query,
+  Req,
+  Res,
+  StreamableFile,
+  UseGuards
+} from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
 import type { Response } from "express";
 import { AuthenticatedRequest } from "../../common/auth-request";
@@ -32,17 +40,30 @@ export class ReportsController {
       filters
     );
 
-    if (filters.format === "csv") {
-      response.setHeader("Content-Type", "text/csv; charset=utf-8");
-      response.setHeader(
-        "Content-Disposition",
-        'attachment; filename="sales-report.csv"'
-      );
-    }
-
     await this.logReport("sales", filters, request);
 
+    if (filters.format === "csv") {
+      return this.toCsvFile(result as string, "sales-report.csv", response);
+    }
+
     return result;
+  }
+
+  @RequirePermissions("reports.read")
+  @Get("export/sales")
+  async exportSalesReport(
+    @Query() filters: SalesReportFiltersDto,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.reportsService.getSalesReport(request.authUser?.storeId, {
+      ...filters,
+      format: "csv"
+    });
+
+    await this.logReport("sales", { ...filters, format: "csv" }, request);
+
+    return this.toCsvFile(result as string, "sales-report.csv", response);
   }
 
   @RequirePermissions("reports.read")
@@ -57,17 +78,30 @@ export class ReportsController {
       filters
     );
 
-    if (filters.format === "csv") {
-      response.setHeader("Content-Type", "text/csv; charset=utf-8");
-      response.setHeader(
-        "Content-Disposition",
-        'attachment; filename="stock-report.csv"'
-      );
-    }
-
     await this.logReport("stock", filters, request);
 
+    if (filters.format === "csv") {
+      return this.toCsvFile(result as string, "stock-report.csv", response);
+    }
+
     return result;
+  }
+
+  @RequirePermissions("reports.read")
+  @Get("export/stock")
+  async exportStockReport(
+    @Query() filters: StockReportFiltersDto,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.reportsService.getStockReport(request.authUser?.storeId, {
+      ...filters,
+      format: "csv"
+    });
+
+    await this.logReport("stock", { ...filters, format: "csv" }, request);
+
+    return this.toCsvFile(result as string, "stock-report.csv", response);
   }
 
   @RequirePermissions("reports.read")
@@ -82,17 +116,30 @@ export class ReportsController {
       filters
     );
 
-    if (filters.format === "csv") {
-      response.setHeader("Content-Type", "text/csv; charset=utf-8");
-      response.setHeader(
-        "Content-Disposition",
-        'attachment; filename="cash-report.csv"'
-      );
-    }
-
     await this.logReport("cash", filters, request);
 
+    if (filters.format === "csv") {
+      return this.toCsvFile(result as string, "cash-report.csv", response);
+    }
+
     return result;
+  }
+
+  @RequirePermissions("reports.read")
+  @Get("export/cash")
+  async exportCashReport(
+    @Query() filters: CashReportFiltersDto,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.reportsService.getCashReport(request.authUser?.storeId, {
+      ...filters,
+      format: "csv"
+    });
+
+    await this.logReport("cash", { ...filters, format: "csv" }, request);
+
+    return this.toCsvFile(result as string, "cash-report.csv", response);
   }
 
   @RequirePermissions("reports.read")
@@ -107,17 +154,30 @@ export class ReportsController {
       filters
     );
 
-    if (filters.format === "csv") {
-      response.setHeader("Content-Type", "text/csv; charset=utf-8");
-      response.setHeader(
-        "Content-Disposition",
-        'attachment; filename="customers-report.csv"'
-      );
-    }
-
     await this.logReport("customers", filters, request);
 
+    if (filters.format === "csv") {
+      return this.toCsvFile(result as string, "customers-report.csv", response);
+    }
+
     return result;
+  }
+
+  @RequirePermissions("reports.read")
+  @Get("export/customers")
+  async exportCustomerReport(
+    @Query() filters: CustomerReportFiltersDto,
+    @Req() request: AuthenticatedRequest,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.reportsService.getCustomerReport(request.authUser?.storeId, {
+      ...filters,
+      format: "csv"
+    });
+
+    await this.logReport("customers", { ...filters, format: "csv" }, request);
+
+    return this.toCsvFile(result as string, "customers-report.csv", response);
   }
 
   private async logReport(
@@ -139,5 +199,12 @@ export class ReportsController {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"]
     });
+  }
+
+  private toCsvFile(csvContent: string, fileName: string, response: Response) {
+    response.setHeader("Content-Type", "text/csv; charset=utf-8");
+    response.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+
+    return new StreamableFile(Buffer.from(csvContent, "utf-8"));
   }
 }

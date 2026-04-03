@@ -4,13 +4,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { ArrowLeft, Link2, PackagePlus, Pencil, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Link2, PackagePlus, Pencil, RefreshCw, Save, Trash2 } from "lucide-react";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   changePurchaseOrderStatus,
   getPurchaseOrder,
@@ -21,8 +22,10 @@ import {
   updatePurchaseOrder,
   type PurchaseOrderStatusName
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { formatCurrency, formatDateTime, parseCurrencyToCents } from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 import {
   AdvancedFeedback,
   PurchaseOrderStatusBadge,
@@ -138,13 +141,13 @@ export function PurchaseOrderDetailPage() {
       }),
     onSuccess: async () => {
       setEditing(false);
-      setFeedback({ tone: "success", text: "Pedido atualizado com sucesso." });
+      success("Pedido atualizado com sucesso.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["purchase-orders", id] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const statusMutation = useMutation({
@@ -158,14 +161,14 @@ export function PurchaseOrderDetailPage() {
       });
     },
     onSuccess: async () => {
-      setFeedback({ tone: "success", text: "Status do pedido atualizado." });
+      success("Status do pedido atualizado.");
       setNextStatus("");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["purchase-orders", id] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const receiveMutation = useMutation({
@@ -237,7 +240,7 @@ export function PurchaseOrderDetailPage() {
       return receivePurchaseOrder(session.accessToken, id, { items });
     },
     onSuccess: async () => {
-      setFeedback({ tone: "success", text: "Recebimento processado e estoque atualizado." });
+      success("Recebimento processado e estoque atualizado.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
         queryClient.invalidateQueries({ queryKey: ["purchase-orders", id] }),
@@ -246,7 +249,7 @@ export function PurchaseOrderDetailPage() {
         queryClient.invalidateQueries({ queryKey: ["products"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   if (orderQuery.isLoading) {
@@ -267,17 +270,11 @@ export function PurchaseOrderDetailPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Compras"
+        backHref="/purchase-orders"
+        subtitle={`${order.supplier.tradeName ?? order.supplier.name} • ${formatPurchaseOrderStatus(order.status)}`}
         title={order.orderNumber}
-        description={`${order.supplier.tradeName ?? order.supplier.name} • ${formatPurchaseOrderStatus(order.status)}`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Button asChild type="button" variant="outline">
-              <Link to="/purchase-orders">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Voltar
-              </Link>
-            </Button>
             {hasPermission("accounts-payable.create") ? (
               <Button asChild type="button" variant="outline">
                 <Link to={`/accounts-payable?purchaseOrderId=${order.id}`}>
@@ -403,10 +400,10 @@ export function PurchaseOrderDetailPage() {
           </Card>
 
           <div className="flex justify-end">
-            <Button disabled={updateMutation.isPending} type="submit">
+            <LoadingButton isLoading={updateMutation.isPending} loadingText="Salvando..." type="submit">
               <Save className="mr-2 h-4 w-4" />
-              {updateMutation.isPending ? "Salvando..." : "Salvar pedido"}
-            </Button>
+              Salvar pedido
+            </LoadingButton>
           </div>
         </form>
       ) : null}
@@ -430,10 +427,10 @@ export function PurchaseOrderDetailPage() {
               ]}
             />
             <div className="flex items-end">
-              <Button disabled={statusMutation.isPending} onClick={() => statusMutation.mutate()} type="button">
+              <LoadingButton isLoading={statusMutation.isPending} loadingText="Aguarde..." onClick={() => statusMutation.mutate()} type="button">
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Atualizar status
-              </Button>
+              </LoadingButton>
             </div>
           </CardContent>
         </Card>
@@ -529,10 +526,10 @@ export function PurchaseOrderDetailPage() {
 
           {canReceive ? (
             <div className="flex justify-end">
-              <Button disabled={receiveMutation.isPending} onClick={() => receiveMutation.mutate()} type="button">
+              <LoadingButton isLoading={receiveMutation.isPending} loadingText="Processando..." onClick={() => receiveMutation.mutate()} type="button">
                 <PackagePlus className="mr-2 h-4 w-4" />
-                {receiveMutation.isPending ? "Processando..." : "Receber no estoque"}
-              </Button>
+                Receber no estoque
+              </LoadingButton>
             </div>
           ) : null}
         </CardContent>

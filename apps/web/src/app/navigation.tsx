@@ -1,15 +1,19 @@
 import type { PermissionKey } from "@/shared";
 import type { LucideIcon } from "lucide-react";
 import {
+  ArrowRightLeft,
   BarChart3,
+  BadgePercent,
   Boxes,
   CircleDollarSign,
   ClipboardList,
   CreditCard,
   FileBadge2,
+  HandCoins,
   LayoutDashboard,
   MapPin,
   Package,
+  PackagePlus,
   ReceiptText,
   ScanLine,
   Store,
@@ -19,12 +23,18 @@ import {
 } from "lucide-react";
 import { Wrench } from "lucide-react";
 
+export type AppNavBadgeKey =
+  | "service-orders-open"
+  | "accounts-payable-overdue"
+  | "accounts-receivable-overdue";
+
 export type AppNavItem = {
   label: string;
   to: string;
   icon: LucideIcon;
   description: string;
   permission?: PermissionKey;
+  badgeKey?: AppNavBadgeKey;
 };
 
 export type AppNavGroup = {
@@ -34,7 +44,7 @@ export type AppNavGroup = {
 
 export const navigationGroups: AppNavGroup[] = [
   {
-    label: "Gestao",
+    label: "Operacao",
     items: [
       {
         label: "Dashboard",
@@ -44,17 +54,12 @@ export const navigationGroups: AppNavGroup[] = [
         permission: "reports.read"
       },
       {
-        label: "Relatorios",
-        to: "/reports",
-        icon: BarChart3,
-        description: "Vendas, estoque, caixa, clientes e exportacoes CSV.",
-        permission: "reports.read"
-      }
-    ]
-  },
-  {
-    label: "Operacao",
-    items: [
+        label: "PDV",
+        to: "/pdv",
+        icon: ScanLine,
+        description: "Busca rapida, carrinho e checkout vinculado ao caixa.",
+        permission: "sales.checkout"
+      },
       {
         label: "Caixa",
         to: "/cash",
@@ -63,68 +68,11 @@ export const navigationGroups: AppNavGroup[] = [
         permission: "cash.read"
       },
       {
-        label: "PDV",
-        to: "/pdv",
-        icon: ScanLine,
-        description: "Busca rapida, carrinho e checkout vinculado ao caixa.",
-        permission: "sales.checkout"
-      },
-      {
         label: "Vendas",
         to: "/sales",
         icon: ReceiptText,
         description: "Historico e detalhe das vendas concluidas.",
         permission: "sales.read"
-      },
-      {
-        label: "Devolucoes",
-        to: "/sale-returns",
-        icon: Undo2,
-        description: "Retorno de itens, reembolso e rastreio pos-venda.",
-        permission: "sale-returns.read"
-      }
-    ]
-  },
-  {
-    label: "Assistencia",
-    items: [
-      {
-        label: "Ordens de servico",
-        to: "/service-orders",
-        icon: Wrench,
-        description: "Abertura de OS, timeline tecnica e consumo de pecas.",
-        permission: "service-orders.read"
-      }
-    ]
-  },
-  {
-    label: "Catalogo",
-    items: [
-      {
-        label: "Produtos",
-        to: "/products",
-        icon: Package,
-        description: "Catalogo de produtos fisicos com precos, codigos e fornecedor.",
-        permission: "products.read"
-      },
-      {
-        label: "Servicos",
-        to: "/services",
-        icon: Wrench,
-        description: "Catalogo de servicos sem dependencia de estoque.",
-        permission: "products.read"
-      }
-    ]
-  },
-  {
-    label: "Compras",
-    items: [
-      {
-        label: "Pedidos de compra",
-        to: "/purchase-orders",
-        icon: Truck,
-        description: "Planejamento, recebimento parcial e integracao com AP.",
-        permission: "purchase-orders.read"
       }
     ]
   },
@@ -132,17 +80,38 @@ export const navigationGroups: AppNavGroup[] = [
     label: "Estoque",
     items: [
       {
-        label: "Visao geral",
+        label: "Estoque",
         to: "/inventory",
-        icon: ClipboardList,
+        icon: Boxes,
         description: "Saldos, movimentos e consulta real por local.",
         permission: "inventory.read"
+      },
+      {
+        label: "Entradas",
+        to: "/inventory/entry",
+        icon: PackagePlus,
+        description: "Lancamentos de entrada com atualizacao imediata do saldo.",
+        permission: "inventory.entry"
+      },
+      {
+        label: "Ajustes",
+        to: "/inventory/adjustment",
+        icon: ClipboardList,
+        description: "Correcao rastreavel de divergencias de estoque.",
+        permission: "inventory.adjust"
+      },
+      {
+        label: "Transferencias",
+        to: "/inventory/transfer",
+        icon: ArrowRightLeft,
+        description: "Movimentacao entre locais sem perder rastreabilidade.",
+        permission: "inventory.transfer"
       },
       {
         label: "Unidades",
         to: "/inventory/units",
         icon: Package,
-        description: "Controle por IMEI/serial e transferencia entre locais.",
+        description: "Controle por IMEI ou serial das unidades fisicas.",
         permission: "inventory.read"
       },
       {
@@ -157,6 +126,20 @@ export const navigationGroups: AppNavGroup[] = [
   {
     label: "Cadastros",
     items: [
+      {
+        label: "Produtos",
+        to: "/products",
+        icon: Package,
+        description: "Catalogo de produtos fisicos com precos, codigos e fornecedor.",
+        permission: "products.read"
+      },
+      {
+        label: "Servicos",
+        to: "/services",
+        icon: Wrench,
+        description: "Catalogo de servicos sem dependencia de estoque.",
+        permission: "products.read"
+      },
       {
         label: "Clientes",
         to: "/customers",
@@ -184,7 +167,7 @@ export const navigationGroups: AppNavGroup[] = [
     label: "Financeiro",
     items: [
       {
-        label: "Resumo",
+        label: "Financeiro",
         to: "/financial",
         icon: CreditCard,
         description: "Pulso consolidado de entradas, saidas e previsao.",
@@ -195,26 +178,69 @@ export const navigationGroups: AppNavGroup[] = [
         to: "/accounts-payable",
         icon: Truck,
         description: "Titulos de fornecedores, vencimentos e baixas.",
-        permission: "accounts-payable.read"
+        permission: "accounts-payable.read",
+        badgeKey: "accounts-payable-overdue"
       },
       {
         label: "Contas a receber",
         to: "/accounts-receivable",
         icon: Users,
         description: "Titulos de clientes, recebimentos e atrasos.",
-        permission: "accounts-receivable.read"
+        permission: "accounts-receivable.read",
+        badgeKey: "accounts-receivable-overdue"
       }
     ]
   },
   {
-    label: "Administracao",
+    label: "Servicos",
     items: [
       {
-        label: "Loja",
-        to: "/settings/store",
-        icon: Store,
-        description: "Branding e configuracao institucional.",
-        permission: "stores.read"
+        label: "Ordens de servico",
+        to: "/service-orders",
+        icon: Wrench,
+        description: "Abertura de OS, timeline tecnica e consumo de pecas.",
+        permission: "service-orders.read",
+        badgeKey: "service-orders-open"
+      },
+      {
+        label: "Pedidos de compra",
+        to: "/purchase-orders",
+        icon: Truck,
+        description: "Planejamento, recebimento parcial e integracao com financeiro.",
+        permission: "purchase-orders.read"
+      },
+      {
+        label: "Devolucoes",
+        to: "/sale-returns",
+        icon: Undo2,
+        description: "Retorno de itens, reembolso e rastreio pos-venda.",
+        permission: "sale-returns.read"
+      }
+    ]
+  },
+  {
+    label: "Gestao",
+    items: [
+      {
+        label: "Relatorios",
+        to: "/reports",
+        icon: BarChart3,
+        description: "Vendas, estoque, caixa, clientes e exportacoes CSV.",
+        permission: "reports.read"
+      },
+      {
+        label: "Minhas comissoes",
+        to: "/commissions/my",
+        icon: HandCoins,
+        description: "Resumo mensal das comissoes registradas e meta pessoal.",
+        permission: "commissions.read"
+      },
+      {
+        label: "Comissoes da equipe",
+        to: "/commissions/team",
+        icon: BadgePercent,
+        description: "Visao gerencial por vendedor com total vendido, comissao e meta.",
+        permission: "commissions.manage"
       },
       {
         label: "Fiscal",
@@ -222,6 +248,13 @@ export const navigationGroups: AppNavGroup[] = [
         icon: FileBadge2,
         description: "Comprovantes internos, cancelamentos e relatorio fiscal base.",
         permission: "fiscal.read"
+      },
+      {
+        label: "Configuracoes",
+        to: "/settings/store",
+        icon: Store,
+        description: "Branding e configuracao institucional da loja.",
+        permission: "stores.read"
       }
     ]
   }

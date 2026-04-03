@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardList, LoaderCircle } from "lucide-react";
+import { ClipboardList } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/app/page-header";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { useAppSession } from "@/app/session-context";
 import { InventoryFeedback, InventoryFieldError, getInventoryErrorMessage, inventorySelectClassName, inventoryTextareaClassName } from "@/features/inventory/inventory-ui";
 import {
@@ -18,9 +17,11 @@ import {
   listProducts,
   listStockLocations
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { formatCompactNumber } from "@/lib/format";
 import { applyZodErrors, readFormString } from "@/lib/form-helpers";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 const inventoryAdjustmentSchema = z.object({
   productId: z.string().uuid("Selecione um produto fisico valido."),
@@ -99,10 +100,9 @@ export function InventoryAdjustmentPage() {
       createInventoryAdjustment(session.accessToken, values),
     onSuccess: async (result) => {
       const direction = result.delta > 0 ? "acrescentou" : "reduziu";
-      setFeedback({
-        tone: "success",
-        text: `Ajuste gravado com sucesso. O saldo ${direction} ${Math.abs(result.delta)} unidade(s) e agora esta em ${result.currentQuantity}.`
-      });
+      success(
+        `Ajuste gravado com sucesso. O saldo ${direction} ${Math.abs(result.delta)} unidade(s) e agora esta em ${result.currentQuantity}.`
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["inventory"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
@@ -116,26 +116,15 @@ export function InventoryAdjustmentPage() {
       });
     },
     onError: (error: Error) => {
-      setFeedback({
-        tone: "error",
-        text: error.message
-      });
+      toastError(parseApiError(error));
     }
   });
 
   return (
     <div className="space-y-6">
       <PageHeader
-        actions={
-          <Button asChild variant="outline">
-            <Link to="/inventory">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar ao estoque
-            </Link>
-          </Button>
-        }
-        description="Ajuste com rastreabilidade: o sistema registra a diferenca em `stock_movements` e corrige o `stock_balances` do local."
-        eyebrow="Estoque"
+        backHref="/inventory"
+        subtitle="Ajuste com rastreabilidade: o sistema registra a diferenca em `stock_movements` e corrige o `stock_balances` do local."
         title="Ajuste de estoque"
       />
 
@@ -273,19 +262,15 @@ export function InventoryAdjustmentPage() {
             {feedback ? <InventoryFeedback {...feedback} /> : null}
 
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="flex-1" disabled={saveMutation.isPending} type="submit">
-                {saveMutation.isPending ? (
-                  <>
-                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                    Gravando ajuste...
-                  </>
-                ) : (
-                  <>
-                    <ClipboardList className="mr-2 h-4 w-4" />
-                    Registrar ajuste
-                  </>
-                )}
-              </Button>
+              <LoadingButton
+                className="flex-1"
+                isLoading={saveMutation.isPending}
+                loadingText="Gravando ajuste..."
+                type="submit"
+              >
+                <ClipboardList className="mr-2 h-4 w-4" />
+                Registrar ajuste
+              </LoadingButton>
             </div>
           </form>
         </CardContent>

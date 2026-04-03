@@ -38,10 +38,14 @@ As rotas abaixo estao expostas hoje no shell autenticado:
 - `/service-orders`
 - `/service-orders/new`
 - `/service-orders/:id`
+- `/service-orders/:id/quotes/new`
+- `/service-orders/:id/quotes/:quoteId/edit`
 - `/purchase-orders`
 - `/purchase-orders/new`
 - `/purchase-orders/:id`
 - `/financial`
+- `/commissions/my`
+- `/commissions/team`
 - `/accounts-payable`
 - `/accounts-receivable`
 - `/reports`
@@ -97,8 +101,8 @@ As rotas abaixo estao expostas hoje no shell autenticado:
 | Gestao | Exportacoes CSV | IMPLEMENTADO PARCIALMENTE | Sim | Disponiveis nos reports atuais; cobertura ainda restrita aos relatorios implementados. |
 | Gestao | Graficos alem do resumo inicial | IMPLEMENTADO PARCIALMENTE | Sim | Dashboard e relatorios ja usam dados reais, mas a camada gerencial ainda nao foi tratada como fechada. |
 | Gestao | Auditoria complementar de reports/operacao | IMPLEMENTADO PARCIALMENTE | Nao | Reports e fiscal-core ja registram auditoria; falta ampliar a cobertura gerencial/comercial completa. |
-| Fiscal | Fiscal core interno | IMPLEMENTADO E FUNCIONAL | Sim | Comprovante interno honesto, sem emissao SEFAZ e com tela fiscal explicita sobre esse limite. |
-| Fiscal | Comprovante interno | IMPLEMENTADO E FUNCIONAL | Sim | Emissao por venda concluida, com `fiscal_documents`, `fiscal_events` e timeline visivel na venda. |
+| Fiscal | Fiscal core interno | IMPLEMENTADO E FUNCIONAL | Sim | Comprovante interno honesto, sem emissao SEFAZ, com tela fiscal explicita sobre esse limite e impressao termica por HTML. |
+| Fiscal | Comprovante interno | IMPLEMENTADO E FUNCIONAL | Sim | Emissao por venda concluida, com `fiscal_documents`, `fiscal_events`, timeline visivel na venda e comprovante imprimivel em 80mm. |
 | Fiscal | Cancelamento fiscal estruturado | IMPLEMENTADO E FUNCIONAL | Sim | Cancelamento rastreado, com motivo opcional, evento e atualizacao do status na venda. |
 | Fiscal | Relatorio fiscal | IMPLEMENTADO E FUNCIONAL | Sim | Endpoint e tela reais com filtros basicos, totalizadores e leitura de eventos do documento. |
 | Fiscal | `fiscal-config` | IMPLEMENTADO NO BANCO MAS NAO EXECUTAVEL | Nao | Estrutura no schema sem modulo operacional. |
@@ -106,12 +110,12 @@ As rotas abaixo estao expostas hoje no shell autenticado:
 | Fiscal | `fiscal_xml_storage` | IMPLEMENTADO NO BANCO MAS NAO EXECUTAVEL | Nao | Base preparada para armazenamento futuro. |
 | Fiscal | `fiscal-emission` externo | NAO IMPLEMENTADO | Nao | Nao existe emissao SEFAZ executavel. |
 | Fiscal | Integracao fiscal avancada com `sales` | IMPLEMENTADO PARCIALMENTE | Sim | Existe integracao interna de comprovante; emissao fiscal externa ainda nao existe. |
-| Modulos avancados | Service orders core | IMPLEMENTADO E FUNCIONAL | Sim | Abertura, edicao, historico de status, itens operacionais e consumo de pecas com impacto em estoque. |
-| Modulos avancados | Service order quotes | IMPLEMENTADO NO BANCO MAS NAO EXECUTAVEL | Nao | Tabelas existem, mas o fluxo de orcamento ainda nao foi operacionalizado. |
-| Modulos avancados | Service order attachments | IMPLEMENTADO NO BANCO MAS NAO EXECUTAVEL | Nao | Estrutura preparada sem upload/consulta operacionais. |
+| Modulos avancados | Service orders core | IMPLEMENTADO E FUNCIONAL | Sim | Abertura, edicao, historico de status, itens operacionais, consumo de pecas com impacto em estoque e comprovante imprimivel. |
+| Modulos avancados | Service order quotes | IMPLEMENTADO E FUNCIONAL | Sim | Orcamento dedicado por OS com criacao, edicao pendente, aprovacao e rejeicao. |
+| Modulos avancados | Service order attachments | IMPLEMENTADO E FUNCIONAL | Sim | Upload local, listagem, preview/download e remocao de anexos da OS. |
 | Modulos avancados | Purchase orders core | IMPLEMENTADO E FUNCIONAL | Sim | Criacao, alteracao de status, recebimento parcial/total e entrada real em estoque. |
 | Modulos avancados | Sale returns | IMPLEMENTADO E FUNCIONAL | Sim | Devolucao vinculada a venda, retorno real ao estoque e reembolso operacional. |
-| Modulos avancados | Commissions | IMPLEMENTADO NO BANCO MAS NAO EXECUTAVEL | Nao | Estrutura preparada (`sales_commissions`, `sales_targets`). |
+| Modulos avancados | Commissions | IMPLEMENTADO E FUNCIONAL | Sim | Modulo basico com resumo pessoal, resumo da equipe, registro manual e metas mensais por usuario. |
 | Modulos avancados | Printing | NAO IMPLEMENTADO | Nao | Nao ha modulo executavel nem contrato ativo. |
 
 ## Leitura correta da secao "o que ainda nao esta implementado"
@@ -130,4 +134,4 @@ Os itens que permanecem realmente pendentes ou parciais sao:
 
 - consolidacao final de `cash`, `financial`, `dashboard`, `reports` e auditoria complementar
 - `fiscal-config`, `fiscal-queue`, `fiscal-emission` e integracao fiscal avancada
-- `service_order_quotes`, `service_order_attachments`, `commissions` e `printing`
+- `printing`

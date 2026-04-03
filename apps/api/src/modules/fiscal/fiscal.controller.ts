@@ -6,9 +6,12 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards
 } from "@nestjs/common";
+import type { Response } from "express";
 import { AuthenticatedRequest } from "../../common/auth-request";
+import { Public } from "../auth/decorators/public.decorator";
 import { RequirePermissions } from "../auth/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
@@ -51,6 +54,33 @@ export class FiscalController {
       ipAddress: request.ip,
       userAgent: request.headers["user-agent"]
     });
+  }
+
+  @RequirePermissions("fiscal.issue")
+  @Post("receipt/:saleId/print-link")
+  async createReceiptPrintLink(
+    @Param("saleId") saleId: string,
+    @Req() request: AuthenticatedRequest
+  ) {
+    return this.fiscalService.createReceiptPrintLink(saleId, request.authUser!.storeId, {
+      userId: request.authUser?.sub ?? null,
+      ipAddress: request.ip,
+      userAgent: request.headers["user-agent"]
+    });
+  }
+
+  @Public()
+  @Get("receipt/:saleId")
+  async getReceiptHtml(
+    @Param("saleId") saleId: string,
+    @Query("printToken") printToken: string | undefined,
+    @Query("autoprint") autoprint: string | undefined,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    response.setHeader("Content-Type", "text/html; charset=utf-8");
+    response.setHeader("Cache-Control", "no-store");
+
+    return this.fiscalService.getReceiptHtml(saleId, printToken ?? "", autoprint === "1");
   }
 
   @RequirePermissions("fiscal.cancel")

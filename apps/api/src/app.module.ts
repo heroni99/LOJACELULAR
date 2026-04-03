@@ -6,6 +6,7 @@ import { AccountsPayableModule } from "./modules/accounts-payable/accounts-payab
 import { AccountsReceivableModule } from "./modules/accounts-receivable/accounts-receivable.module";
 import { CashModule } from "./modules/cash/cash.module";
 import { CategoriesModule } from "./modules/categories/categories.module";
+import { CommissionsModule } from "./modules/commissions/commissions.module";
 import { CustomersModule } from "./modules/customers/customers.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
 import { FiscalModule } from "./modules/fiscal/fiscal.module";
@@ -34,6 +35,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     AccountsPayableModule,
     AccountsReceivableModule,
     CashModule,
+    CommissionsModule,
     DashboardModule,
     FiscalModule,
     FinancialModule,

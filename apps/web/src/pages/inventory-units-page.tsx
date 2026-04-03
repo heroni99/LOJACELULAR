@@ -28,6 +28,7 @@ import {
   updateInventoryUnit,
   type InventoryProductUnit
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import {
   centsToInputValue,
   formatCurrency,
@@ -35,6 +36,7 @@ import {
   parseCurrencyToCents
 } from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 const createUnitsSchema = z.object({
   productId: z.string().uuid("Selecione um produto serializado."),
@@ -221,10 +223,7 @@ export function InventoryUnitsPage() {
       });
     },
     onSuccess: async (result) => {
-      setFeedback({
-        tone: "success",
-        text: `${result.units.length} unidade(s) serializada(s) registrada(s) com sucesso.`
-      });
+      success(`${result.units.length} unidade(s) serializada(s) registrada(s) com sucesso.`);
       createForm.reset({
         ...emptyCreateValues,
         productId: createForm.getValues("productId"),
@@ -233,7 +232,7 @@ export function InventoryUnitsPage() {
       await invalidateInventoryViews();
     },
     onError: (error: Error) => {
-      setFeedback({ tone: "error", text: error.message });
+      toastError(parseApiError(error));
     }
   });
 
@@ -256,14 +255,11 @@ export function InventoryUnitsPage() {
     },
     onSuccess: async (unit) => {
       setSelectedUnit(unit);
-      setFeedback({
-        tone: "success",
-        text: `Unidade ${displayUnit(unit)} atualizada com sucesso.`
-      });
+      success(`Unidade ${displayUnit(unit)} atualizada com sucesso.`);
       await invalidateInventoryViews();
     },
     onError: (error: Error) => {
-      setFeedback({ tone: "error", text: error.message });
+      toastError(parseApiError(error));
     }
   });
 
@@ -280,14 +276,11 @@ export function InventoryUnitsPage() {
     },
     onSuccess: async (result) => {
       setSelectedUnit(result.unit);
-      setFeedback({
-        tone: "success",
-        text: `Unidade transferida para ${result.unit.currentLocation?.name ?? "novo local"}.`
-      });
+      success(`Unidade transferida para ${result.unit.currentLocation?.name ?? "novo local"}.`);
       await invalidateInventoryViews();
     },
     onError: (error: Error) => {
-      setFeedback({ tone: "error", text: error.message });
+      toastError(parseApiError(error));
     }
   });
 

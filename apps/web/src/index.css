@@ -44,3 +44,24 @@ body {
 #root {
   min-height: 100vh;
 }
+
+@keyframes list-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.list-skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.12) 0%,
+    rgba(148, 163, 184, 0.22) 50%,
+    rgba(148, 163, 184, 0.12) 100%
+  );
+  background-size: 200% 100%;
+  animation: list-skeleton-shimmer 1.4s linear infinite;
+}

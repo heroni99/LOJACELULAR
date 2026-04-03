@@ -1,32 +1,30 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, RefreshCw, Search } from "lucide-react";
+import { Download, RefreshCw, TrendingUp, UserCheck, Users, Wallet } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { DetailCard } from "@/components/ui/detail-card";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 import {
   downloadCustomerReportCsv,
-  getCustomerReport
+  getCustomerReport,
+  type CustomerReport
 } from "@/lib/api";
-import {
-  formatCompactNumber,
-  formatCurrency,
-  formatDateTime
-} from "@/lib/format";
-import {
-  downloadBrowserFile,
-  ReportMetricCard,
-  selectClassName,
-  SingleSeriesBarChart
-} from "@/features/reports/reporting-ui";
+import { parseApiError } from "@/lib/api-error";
+import { formatCompactNumber, formatCurrency, formatDateTime } from "@/lib/format";
+import { downloadBrowserFile, SingleSeriesBarChart } from "@/features/reports/reporting-ui";
 import { monthStartDateValue, todayDateValue } from "@/features/reports/report-utils";
+import { reportFieldClassName, reportSelectClassName } from "@/pages/reports/reports-shared";
+
+type CustomerReportRow = CustomerReport["rows"][number];
 
 export function CustomersReportPage() {
   const { authEnabled, session } = useAppSession();
   const token = authEnabled ? session.accessToken : undefined;
-  const [search, setSearch] = useState("");
   const [active, setActive] = useState<"" | "true" | "false">("true");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
@@ -34,10 +32,9 @@ export function CustomersReportPage() {
   const [endDate, setEndDate] = useState(todayDateValue());
 
   const reportQuery = useQuery({
-    queryKey: ["reports", "customers", search, active, city, state, startDate, endDate],
+    queryKey: ["reports", "customers", active, city, state, startDate, endDate],
     queryFn: () =>
       getCustomerReport(token, {
-        search: search.trim() || undefined,
         active: active === "" ? undefined : active === "true",
         city: city.trim() || undefined,
         state: state.trim() || undefined,
@@ -50,7 +47,6 @@ export function CustomersReportPage() {
   const exportMutation = useMutation({
     mutationFn: () =>
       downloadCustomerReportCsv(token, {
-        search: search.trim() || undefined,
         active: active === "" ? undefined : active === "true",
         city: city.trim() || undefined,
         state: state.trim() || undefined,
@@ -63,200 +59,166 @@ export function CustomersReportPage() {
   });
 
   const report = reportQuery.data;
+  const errorMessage = getErrorMessage(reportQuery.error) ?? getErrorMessage(exportMutation.error);
+
+  const columns: Array<DataTableColumn<CustomerReportRow>> = [
+    {
+      id: "name",
+      header: "Nome",
+      cell: (row) => (
+        <div className="space-y-1">
+          <Link
+            className="font-semibold text-primary underline-offset-4 hover:underline"
+            to={`/customers/${row.id}`}
+          >
+            {row.name}
+          </Link>
+          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            {row.active ? "Ativo" : "Inativo"}
+          </p>
+        </div>
+      )
+    },
+    {
+      id: "phone",
+      header: "Telefone",
+      cell: (row) => row.phone
+    },
+    {
+      id: "totalRevenue",
+      header: "Total comprado",
+      cell: (row) => <span className="font-semibold">{formatCurrency(row.totalRevenue)}</span>
+    },
+    {
+      id: "orderCount",
+      header: "Qtd compras",
+      cell: (row) => formatCompactNumber(row.orderCount)
+    },
+    {
+      id: "lastPurchaseAt",
+      header: "Ultima compra",
+      cell: (row) =>
+        row.lastPurchaseAt ? formatDateTime(row.lastPurchaseAt) : "Sem compras no periodo"
+    },
+    {
+      id: "averageTicket",
+      header: "Media",
+      cell: (row) => formatCurrency(row.averageTicket)
+    }
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Relatorios"
-        title="Relatorio de clientes"
-        description="Receita por cliente, ticket medio, ultima compra e recebiveis em aberto usando os dados reais do sistema."
         actions={
           <>
             <Button onClick={() => void reportQuery.refetch()} type="button" variant="outline">
               <RefreshCw className="mr-2 h-4 w-4" />
               Atualizar
             </Button>
-            <Button disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()} type="button">
+            <Button
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+              type="button"
+            >
               <Download className="mr-2 h-4 w-4" />
-              CSV
+              Exportar CSV
             </Button>
           </>
         }
+        subtitle="Base de clientes com receita, recorrencia e recorte geografico."
+        title="Relatorio de clientes"
       />
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Filtros</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_180px_220px_140px_180px_180px]">
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="customers-report-search">
-              Busca
-            </label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-10"
-                id="customers-report-search"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Cliente, documento, telefone ou e-mail"
-                value={search}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Status</label>
-            <select
-              className={selectClassName}
-              onChange={(event) => setActive(event.target.value as typeof active)}
-              value={active}
-            >
-              <option value="">Todos</option>
-              <option value="true">Ativos</option>
-              <option value="false">Inativos</option>
-            </select>
-          </div>
-          <FieldText label="Cidade" onChange={setCity} value={city} />
-          <FieldText label="UF" onChange={setState} value={state} />
-          <FieldDate label="De" onChange={setStartDate} value={startDate} />
-          <FieldDate label="Ate" onChange={setEndDate} value={endDate} />
-        </CardContent>
-      </Card>
+      <DetailCard title="Filtros">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <TextField label="Cidade" onChange={setCity} value={city} />
+          <TextField label="Estado" onChange={setState} value={state} />
+          <SelectField
+            label="Ativo"
+            onChange={(value) => setActive(value as typeof active)}
+            options={[
+              { label: "Ativos", value: "true" },
+              { label: "Inativos", value: "false" }
+            ]}
+            value={active}
+          />
+          <DateField label="Periodo inicio" onChange={setStartDate} value={startDate} />
+          <DateField label="Periodo fim" onChange={setEndDate} value={endDate} />
+        </div>
+        {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
+      </DetailCard>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <ReportMetricCard
-          helper="Clientes retornados pelo filtro"
+        <StatCard
+          icon={<Users className="h-5 w-5" />}
           label="Clientes"
           value={formatCompactNumber(report?.summary.totalCustomers ?? 0)}
         />
-        <ReportMetricCard
-          helper="Clientes com venda no periodo"
-          label="Com compra"
+        <StatCard
+          icon={<UserCheck className="h-5 w-5" />}
+          label="Com compras"
           value={formatCompactNumber(report?.summary.customersWithSales ?? 0)}
         />
-        <ReportMetricCard
-          helper="Receita total por cliente"
-          label="Receita"
+        <StatCard
+          icon={<Wallet className="h-5 w-5" />}
+          label="Total comprado"
           value={formatCurrency(report?.summary.totalRevenue ?? 0)}
         />
-        <ReportMetricCard
-          helper="Media por pedido"
-          label="Ticket medio"
+        <StatCard
+          icon={<TrendingUp className="h-5 w-5" />}
+          label="Media"
           value={formatCurrency(report?.summary.averageTicket ?? 0)}
         />
-        <ReportMetricCard
-          helper="Titulos ainda em aberto"
+        <StatCard
+          icon={<Wallet className="h-5 w-5" />}
           label="A receber"
           value={formatCurrency(report?.summary.openReceivables ?? 0)}
+          variant="warning"
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-        <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="text-xl">Top clientes por receita</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SingleSeriesBarChart
-              colorClassName="bg-slate-900/80"
-              emptyMessage="Sem clientes com faturamento no periodo filtrado."
-              entries={(report?.charts.topCustomers ?? []).map((entry) => ({
-                label: entry.name.slice(0, 10),
-                value: entry.totalRevenue
-              }))}
-              formatValue={formatCurrency}
-            />
-          </CardContent>
-        </Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_320px]">
+        <DetailCard title="Top clientes por receita">
+          <SingleSeriesBarChart
+            colorClassName="bg-slate-900/80"
+            emptyMessage="Sem clientes com faturamento no periodo filtrado."
+            entries={(report?.charts.topCustomers ?? []).map((entry) => ({
+              label: entry.name.slice(0, 12),
+              value: entry.totalRevenue
+            }))}
+            formatValue={formatCurrency}
+          />
+        </DetailCard>
 
-        <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="text-xl">Inadimplencia</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm font-semibold text-amber-900">Recebiveis vencidos</p>
-              <p className="mt-2 text-2xl font-black text-amber-900">
-                {formatCurrency(report?.summary.overdueReceivables ?? 0)}
-              </p>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              O valor acima considera apenas contas a receber com status real `OVERDUE`.
+        <DetailCard title="Recebiveis vencidos">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm font-semibold text-amber-900">Saldo vencido</p>
+            <p className="mt-2 text-3xl font-semibold text-amber-900">
+              {formatCurrency(report?.summary.overdueReceivables ?? 0)}
             </p>
-          </CardContent>
-        </Card>
+          </div>
+          <p className="mt-4 text-sm" style={{ color: "var(--color-text-muted)" }}>
+            O valor considera apenas contas a receber com status real de atraso.
+          </p>
+        </DetailCard>
       </div>
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Clientes filtrados</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">Carregando relatorio...</div>
-          ) : null}
-          {reportQuery.error ? (
-            <div className="p-6 text-sm text-red-700">{(reportQuery.error as Error).message}</div>
-          ) : null}
-          {exportMutation.error ? (
-            <div className="px-6 pb-4 text-sm text-red-700">{(exportMutation.error as Error).message}</div>
-          ) : null}
-          {report?.rows.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-border/70 bg-secondary/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Cliente</th>
-                    <th className="px-4 py-3 font-medium">Cidade</th>
-                    <th className="px-4 py-3 font-medium">Pedidos</th>
-                    <th className="px-4 py-3 font-medium">Receita</th>
-                    <th className="px-4 py-3 font-medium">Ultima compra</th>
-                    <th className="px-4 py-3 font-medium">A receber</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.rows.map((row) => (
-                    <tr key={row.id} className="border-b border-border/60">
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p className="font-semibold">{row.name}</p>
-                          <p className="text-xs text-muted-foreground">{row.phone}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {row.city || "Sem cidade"}
-                        {row.state ? ` • ${row.state}` : ""}
-                      </td>
-                      <td className="px-4 py-4">{formatCompactNumber(row.orderCount)}</td>
-                      <td className="px-4 py-4 font-semibold">{formatCurrency(row.totalRevenue)}</td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {row.lastPurchaseAt ? formatDateTime(row.lastPurchaseAt) : "Sem compra"}
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p>{formatCurrency(row.openReceivables)}</p>
-                          <p className="text-xs text-amber-700">
-                            vencido {formatCurrency(row.overdueReceivables)}
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : !reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              Nenhum cliente encontrado com os filtros atuais.
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <DetailCard title="Clientes do periodo">
+        <DataTable
+          columns={columns}
+          data={report?.rows ?? []}
+          emptyDescription="Tente outro periodo ou ajuste o recorte geografico."
+          emptyTitle="Nenhum cliente encontrado"
+          loading={reportQuery.isLoading}
+          rowKey={(row) => row.id}
+        />
+      </DetailCard>
     </div>
   );
 }
 
-function FieldText({
+function TextField({
   label,
   value,
   onChange
@@ -267,13 +229,47 @@ function FieldText({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{label}</label>
-      <Input onChange={(event) => onChange(event.target.value)} value={value} />
+      <FieldLabel>{label}</FieldLabel>
+      <Input
+        className={reportFieldClassName}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      />
     </div>
   );
 }
 
-function FieldDate({
+function SelectField({
+  label,
+  onChange,
+  options,
+  value
+}: {
+  label: string;
+  onChange(value: string): void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <FieldLabel>{label}</FieldLabel>
+      <select
+        className={reportSelectClassName}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        <option value="">Todos</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function DateField({
   label,
   value,
   onChange
@@ -284,8 +280,36 @@ function FieldDate({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{label}</label>
-      <Input onChange={(event) => onChange(event.target.value)} type="date" value={value} />
+      <FieldLabel>{label}</FieldLabel>
+      <Input
+        className={reportFieldClassName}
+        onChange={(event) => onChange(event.target.value)}
+        type="date"
+        value={value}
+      />
     </div>
   );
+}
+
+function FieldLabel({ children }: { children: string }) {
+  return (
+    <label
+      className="text-[13px] font-medium"
+      style={{ color: "var(--color-text-muted)" }}
+    >
+      {children}
+    </label>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {message}
+    </div>
+  );
+}
+
+function getErrorMessage(error: unknown) {
+  return error ? parseApiError(error) : null;
 }

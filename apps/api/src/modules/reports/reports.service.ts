@@ -14,6 +14,7 @@ import {
   parseDateOnlyInTimeZone
 } from "../../common/reporting-date.utils";
 import { PrismaService } from "../../prisma/prisma.service";
+import { stringify } from "csv-stringify/sync";
 import { CashReportFiltersDto } from "./dto/cash-report-filters.dto";
 import { CustomerReportFiltersDto } from "./dto/customer-report-filters.dto";
 import { SalesReportFiltersDto } from "./dto/sales-report-filters.dto";
@@ -208,6 +209,7 @@ type SalesReportRow = {
   estimatedProfit: number;
   itemCount: number;
   paymentCount: number;
+  paymentMethods: PaymentMethod[];
   customer: {
     id: string;
     name: string;
@@ -232,6 +234,8 @@ type StockReportRow = {
   active: boolean;
   brand: string | null;
   model: string | null;
+  costPrice: number;
+  salePrice: number;
   stockMin: number;
   totalStock: number;
   lowStock: boolean;
@@ -294,6 +298,11 @@ type CashSessionRow = {
     id: string;
     name: string;
   };
+  openedByUser: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
   salesCount: number;
   salesTotal: number;
   movementCount: number;
@@ -330,54 +339,66 @@ export class ReportsService {
     const store = await this.findReferenceStore(preferredStoreId);
     const timeZone = store?.timezone ?? "America/Sao_Paulo";
     const range = this.resolveDateRange(timeZone, filters.startDate, filters.endDate);
-    const sales = await this.prisma.sale.findMany({
-      where: {
-        ...(store?.id ? { storeId: store.id } : {}),
-        ...(filters.customerId ? { customerId: filters.customerId } : {}),
-        ...(filters.userId ? { userId: filters.userId } : {}),
-        ...(filters.status ? { status: filters.status } : {}),
-        ...(range
-          ? {
-              completedAt: {
-                ...(range.start ? { gte: range.start } : {}),
-                ...(range.endInclusive ? { lte: range.endInclusive } : {})
+    const salesWhere: Prisma.SaleWhereInput = {
+      ...(store?.id ? { storeId: store.id } : {}),
+      ...(filters.customerId ? { customerId: filters.customerId } : {}),
+      ...(filters.userId ? { userId: filters.userId } : {}),
+      ...(filters.paymentMethod
+        ? {
+            payments: {
+              some: {
+                method: filters.paymentMethod
               }
             }
-          : {}),
-        ...(filters.search
-          ? {
-              OR: [
-                {
-                  saleNumber: {
+          }
+        : {}),
+      ...(range
+        ? {
+            completedAt: {
+              ...(range.start ? { gte: range.start } : {}),
+              ...(range.endInclusive ? { lte: range.endInclusive } : {})
+            }
+          }
+        : {}),
+      ...(filters.search
+        ? {
+            OR: [
+              {
+                saleNumber: {
+                  contains: filters.search,
+                  mode: "insensitive"
+                }
+              },
+              {
+                receiptNumber: {
+                  contains: filters.search,
+                  mode: "insensitive"
+                }
+              },
+              {
+                customer: {
+                  name: {
                     contains: filters.search,
                     mode: "insensitive"
-                  }
-                },
-                {
-                  receiptNumber: {
-                    contains: filters.search,
-                    mode: "insensitive"
-                  }
-                },
-                {
-                  customer: {
-                    name: {
-                      contains: filters.search,
-                      mode: "insensitive"
-                    }
-                  }
-                },
-                {
-                  user: {
-                    name: {
-                      contains: filters.search,
-                      mode: "insensitive"
-                    }
                   }
                 }
-              ]
-            }
-          : {})
+              },
+              {
+                user: {
+                  name: {
+                    contains: filters.search,
+                    mode: "insensitive"
+                  }
+                }
+              }
+            ]
+          }
+        : {})
+    };
+    const sales = await this.prisma.sale.findMany({
+      where: {
+        ...salesWhere,
+        ...(filters.status ? { status: filters.status } : {}),
       },
       select: salesReportSelect,
       orderBy: {
@@ -386,12 +407,27 @@ export class ReportsService {
     });
 
     const rows = sales.map((sale) => this.serializeSalesRow(sale));
+    const canceledSalesTotal =
+      filters.status === SaleStatus.CANCELED
+        ? sales.reduce((total, sale) => total + sale.total, 0)
+        : (
+            await this.prisma.sale.aggregate({
+              where: {
+                ...salesWhere,
+                status: SaleStatus.CANCELED
+              },
+              _sum: {
+                total: true
+              }
+            })
+          )._sum.total ?? 0;
     const summary = {
       orderCount: rows.length,
       totalRevenue: rows.reduce((total, row) => total + row.total, 0),
       totalDiscount: rows.reduce((total, row) => total + row.discountAmount, 0),
       totalProfit: rows.reduce((total, row) => total + row.estimatedProfit, 0),
       totalItemsSold: rows.reduce((total, row) => total + row.itemCount, 0),
+      totalCanceled: canceledSalesTotal,
       averageTicket: rows.length
         ? Math.round(rows.reduce((total, row) => total + row.total, 0) / rows.length)
         : 0
@@ -464,36 +500,22 @@ export class ReportsService {
     if (filters.format === "csv") {
       return this.buildCsv(
         [
-          "Venda",
-          "Recibo",
-          "Status",
-          "Fiscal",
+          "Numero",
           "Data",
           "Cliente",
           "Operador",
-          "Terminal",
-          "Itens",
-          "Pagamentos",
-          "Subtotal",
-          "Desconto",
+          "Pagamento",
           "Total",
-          "Lucro estimado"
+          "Status"
         ],
         rows.map((row) => [
           row.saleNumber,
-          row.receiptNumber,
-          row.status,
-          row.fiscalStatus,
           row.completedAt,
           row.customer?.name ?? "",
           row.user?.name ?? "",
-          row.cashTerminal.name,
-          row.itemCount,
-          row.paymentCount,
-          row.subtotal,
-          row.discountAmount,
+          row.paymentMethods.join(", "),
           row.total,
-          row.estimatedProfit
+          row.status
         ])
       );
     }
@@ -634,32 +656,28 @@ export class ReportsService {
     if (filters.format === "csv") {
       return this.buildCsv(
         [
-          "Codigo interno",
+          "Codigo",
           "Nome",
           "Categoria",
-          "Fornecedor",
-          "Codigo fornecedor",
-          "Ativo",
-          "Estoque minimo",
-          "Saldo total",
-          "Baixo estoque",
-          "Valor custo",
-          "Valor venda",
-          "Locais"
+          "Estoque por local",
+          "Custo",
+          "Preco",
+          "Minimo",
+          "Ativo"
         ],
         rows.map((row) => [
           row.internalCode,
           row.name,
           row.category.name,
-          row.supplier?.tradeName || row.supplier?.name || "",
-          row.supplierCode,
-          row.active,
+          row.balances.length
+            ? row.balances
+                .map((balance) => `${balance.location.name}: ${balance.quantity}`)
+                .join(" | ")
+            : `Total: ${row.totalStock}`,
+          row.costPrice,
+          row.salePrice,
           row.stockMin,
-          row.totalStock,
-          row.lowStock,
-          row.inventoryCostValue,
-          row.inventorySaleValue,
-          row.balances.map((balance) => `${balance.location.name}: ${balance.quantity}`).join(" | ")
+          row.active
         ])
       );
     }
@@ -830,6 +848,7 @@ export class ReportsService {
         closingAmount: session.closingAmount,
         difference: session.difference,
         terminal: session.cashTerminal,
+        openedByUser: session.openedByUser,
         salesCount: session.sales.length,
         salesTotal: session.sales.reduce((total, sale) => total + sale.total, 0),
         movementCount: filteredMovements.length,
@@ -946,28 +965,20 @@ export class ReportsService {
         [
           "Data",
           "Terminal",
-          "Sessao",
-          "Status sessao",
-          "Tipo",
-          "Forma pagamento",
-          "Valor",
-          "Descricao",
-          "Referencia tipo",
-          "Referencia id",
-          "Usuario"
+          "Operador",
+          "Abertura",
+          "Fechamento",
+          "Diferenca",
+          "Status"
         ],
-        movementRows.map((row) => [
-          row.createdAt,
+        sessionRows.map((row) => [
+          row.openedAt,
           row.terminal.name,
-          row.sessionId,
-          row.sessionStatus,
-          row.movementType,
-          this.humanizeCashPaymentMethod(row),
-          row.amount,
-          row.description,
-          row.referenceType,
-          row.referenceId,
-          row.user?.name ?? ""
+          row.openedByUser?.name ?? "",
+          row.openingAmount,
+          row.closingAmount,
+          row.difference,
+          row.status
         ])
       );
     }
@@ -1148,34 +1159,26 @@ export class ReportsService {
     if (filters.format === "csv") {
       return this.buildCsv(
         [
-          "Cliente",
-          "CPF/CNPJ",
+          "Nome",
           "Telefone",
-          "E-mail",
+          "Total comprado",
+          "Qtd compras",
+          "Ultima compra",
+          "Media",
           "Cidade",
           "UF",
-          "Ativo",
-          "Pedidos",
-          "Receita",
-          "Ticket medio",
-          "Ultima compra",
-          "Receber em aberto",
-          "Receber vencido"
+          "Ativo"
         ],
         rows.map((row) => [
           row.name,
-          row.cpfCnpj,
           row.phone,
-          row.email,
+          row.totalRevenue,
+          row.orderCount,
+          row.lastPurchaseAt,
+          row.averageTicket,
           row.city,
           row.state,
-          row.active,
-          row.orderCount,
-          row.totalRevenue,
-          row.averageTicket,
-          row.lastPurchaseAt,
-          row.openReceivables,
-          row.overdueReceivables
+          row.active
         ])
       );
     }
@@ -1218,6 +1221,7 @@ export class ReportsService {
       estimatedProfit: sale.total - costTotal,
       itemCount,
       paymentCount: sale.payments.length,
+      paymentMethods: [...new Set(sale.payments.map((payment) => payment.method))],
       customer: sale.customer,
       user: sale.user,
       cashTerminal: sale.cashSession.cashTerminal
@@ -1235,6 +1239,8 @@ export class ReportsService {
       active: product.active,
       brand: product.brand,
       model: product.model,
+      costPrice: product.costPrice,
+      salePrice: product.salePrice,
       stockMin: product.stockMin,
       totalStock,
       lowStock: product.stockMin > 0 && totalStock < product.stockMin,
@@ -1278,23 +1284,6 @@ export class ReportsService {
     );
   }
 
-  private humanizeCashPaymentMethod(row: CashMovementRow) {
-    if (row.paymentMethod) {
-      return row.paymentMethod;
-    }
-
-    if (
-      row.movementType === CashMovementType.OPENING ||
-      row.movementType === CashMovementType.SUPPLY ||
-      row.movementType === CashMovementType.WITHDRAWAL ||
-      row.movementType === CashMovementType.CLOSING
-    ) {
-      return PaymentMethod.CASH;
-    }
-
-    return "";
-  }
-
   private resolveDateRange(
     timeZone: string,
     startDate?: string,
@@ -1333,19 +1322,11 @@ export class ReportsService {
     headers: string[],
     rows: Array<Array<string | number | boolean | null | undefined>>
   ) {
-    const serializeCell = (value: string | number | boolean | null | undefined) => {
-      const normalized = value === null || value === undefined ? "" : String(value);
-      const escaped = normalized.replace(/"/g, '""').replace(/\r?\n/g, " ");
-      return /[;"\n]/.test(escaped) ? `"${escaped}"` : escaped;
-    };
-
-    const lines = [headers.map(serializeCell).join(";")];
-
-    for (const row of rows) {
-      lines.push(row.map(serializeCell).join(";"));
-    }
-
-    return `\uFEFF${lines.join("\r\n")}`;
+    return stringify([headers, ...rows].map((row) => row.map((cell) => cell ?? "")), {
+      bom: true,
+      delimiter: ";",
+      record_delimiter: "windows"
+    });
   }
 
   private async findReferenceStore(preferredStoreId?: string | null) {

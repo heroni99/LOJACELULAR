@@ -1,14 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Plus, Search, ShoppingCart, Trash2 } from "lucide-react";
+import {
+  CheckCircle2,
+  Minus,
+  Plus,
+  Printer,
+  Search,
+  ShoppingCart,
+  Trash2
+} from "lucide-react";
 import { useAppSession } from "@/app/session-context";
 import { PageHeader } from "@/components/app/page-header";
 import { ProductImage } from "@/components/app/product-image";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PdvCheckoutDialog } from "@/pages/pdv/pdv-checkout-dialog";
 import { PdvScannerPanel } from "@/pages/pdv/pdv-scanner-panel";
 import {
   checkoutSale,
@@ -21,6 +39,8 @@ import {
   type PdvProductResult,
   type SaleDetail
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
+import { openFiscalReceiptPrintWindow } from "@/lib/fiscal-receipt";
 import {
   centsToInputValue,
   formatCurrency,
@@ -28,6 +48,7 @@ import {
   parseInteger
 } from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 type CartItem = {
   key: string;
@@ -56,7 +77,7 @@ const selectClassName =
   "flex h-11 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function PdvPage() {
-  const { authEnabled, session } = useAppSession();
+  const { authEnabled, hasPermission, session } = useAppSession();
   const token = authEnabled ? session.accessToken : undefined;
   const scanRef = useRef<HTMLInputElement | null>(null);
   const [term, setTerm] = useState("");
@@ -72,6 +93,9 @@ export function PdvPage() {
     text: string;
   } | null>(null);
   const [lastSale, setLastSale] = useState<SaleDetail | null>(null);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutSuccessOpen, setCheckoutSuccessOpen] = useState(false);
+  const [receiptPrintPending, setReceiptPrintPending] = useState(false);
 
   const cashSessionQuery = useQuery({
     queryKey: ["cash", "current-session"],
@@ -116,7 +140,7 @@ export function PdvPage() {
         }
       }
     },
-    onError: (error) => setFeedback({ tone: "error", text: (error as Error).message })
+    onError: (error) => toastError(parseApiError(error))
   });
 
   const subtotal = useMemo(
@@ -136,6 +160,8 @@ export function PdvPage() {
     payments.some((payment) => payment.method === "CASH") && paymentTotal > total
       ? paymentTotal - total
       : 0;
+  const missingAmount = Math.max(0, total - paymentTotal);
+  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
@@ -166,7 +192,9 @@ export function PdvPage() {
       setTerm("");
       setResults([]);
       setLastSale(sale);
-      setFeedback({ tone: "success", text: `Venda ${sale.saleNumber} concluida.` });
+      setCheckoutOpen(false);
+      setCheckoutSuccessOpen(true);
+      success(`Venda ${sale.saleNumber} concluida.`);
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["cash"] }),
@@ -175,12 +203,40 @@ export function PdvPage() {
         queryClient.invalidateQueries({ queryKey: ["inventory"] })
       ]);
     },
-    onError: (error) => setFeedback({ tone: "error", text: (error as Error).message })
+    onError: (error) => toastError(parseApiError(error))
   });
 
   useEffect(() => {
     scanRef.current?.focus();
   }, [results, cart.length]);
+
+  useEffect(() => {
+    if (!cart.length && checkoutOpen) {
+      setCheckoutOpen(false);
+    }
+  }, [cart.length, checkoutOpen]);
+
+  async function handlePrintLastSaleReceipt() {
+    if (!lastSale) {
+      return;
+    }
+
+    try {
+      setReceiptPrintPending(true);
+      setFeedback(null);
+      await openFiscalReceiptPrintWindow(token, lastSale.id);
+      success("Comprovante aberto em nova aba para impressao.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales"] }),
+        queryClient.invalidateQueries({ queryKey: ["fiscal"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      ]);
+    } catch (error) {
+      toastError(parseApiError(error));
+    } finally {
+      setReceiptPrintPending(false);
+    }
+  }
 
   function addToCart(product: PdvProductResult, unitId?: string) {
     const unit =
@@ -302,6 +358,17 @@ export function PdvPage() {
   return (
     <div className="space-y-6">
       <PageHeader
+        actions={
+          cashSessionQuery.data ? (
+            <Button
+              disabled={!cart.length}
+              onClick={() => setCheckoutOpen(true)}
+              type="button"
+            >
+              Abrir checkout
+            </Button>
+          ) : null
+        }
         badge={
           <StatusBadge tone={cashSessionQuery.data ? "green" : "amber"}>
             {cashSessionQuery.data ? "Caixa aberto" : "Caixa fechado"}
@@ -563,25 +630,69 @@ export function PdvPage() {
                         </Button>
                       </div>
 
-                      <div className="mt-4 grid gap-3 md:grid-cols-3">
-                        <Field
-                          label="Qtd"
-                          onChange={(value) =>
-                            setCart((current) =>
-                              current.map((entry) =>
-                                entry.key === item.key
-                                  ? {
-                                      ...entry,
-                                      quantity: item.hasSerialControl
-                                        ? 1
-                                        : Math.max(1, parseInteger(value))
-                                    }
-                                  : entry
-                              )
-                            )
-                          }
-                          value={String(item.quantity)}
-                        />
+                      <div className="mt-4 grid gap-3 md:grid-cols-[140px_minmax(0,1fr)_minmax(0,1fr)]">
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium">Qtd</label>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              disabled={item.hasSerialControl}
+                              onClick={() =>
+                                setCart((current) =>
+                                  current.map((entry) =>
+                                    entry.key === item.key
+                                      ? {
+                                          ...entry,
+                                          quantity: Math.max(1, entry.quantity - 1)
+                                        }
+                                      : entry
+                                  )
+                                )
+                              }
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <Minus className="h-4 w-4" />
+                            </Button>
+                            <Input
+                              onChange={(event) =>
+                                setCart((current) =>
+                                  current.map((entry) =>
+                                    entry.key === item.key
+                                      ? {
+                                          ...entry,
+                                          quantity: item.hasSerialControl
+                                            ? 1
+                                            : Math.max(1, parseInteger(event.target.value))
+                                        }
+                                      : entry
+                                  )
+                                )
+                              }
+                              value={String(item.quantity)}
+                            />
+                            <Button
+                              disabled={item.hasSerialControl}
+                              onClick={() =>
+                                setCart((current) =>
+                                  current.map((entry) =>
+                                    entry.key === item.key
+                                      ? {
+                                          ...entry,
+                                          quantity: entry.quantity + 1
+                                        }
+                                      : entry
+                                  )
+                                )
+                              }
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
                         <Field
                           label="Preco"
                           onChange={(value) =>
@@ -615,6 +726,15 @@ export function PdvPage() {
                           value={centsToInputValue(item.discountAmount)}
                         />
                       </div>
+
+                      <div className="mt-4 flex items-center justify-between rounded-2xl border border-border/60 bg-white/80 px-4 py-3 text-sm">
+                        <span className="text-muted-foreground">Total da linha</span>
+                        <span className="font-semibold">
+                          {formatCurrency(
+                            item.unitPrice * item.quantity - item.discountAmount
+                          )}
+                        </span>
+                      </div>
                     </div>
                   ))
                 )}
@@ -623,32 +743,29 @@ export function PdvPage() {
 
             <Card className="bg-white/90">
               <CardHeader>
-                <CardTitle className="text-xl">Fechamento</CardTitle>
+                <CardTitle className="text-xl">Resumo rapido</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <select
-                  className={selectClassName}
-                  onChange={(event) => setCustomerId(event.target.value)}
-                  value={customerId}
-                >
-                  <option value="">Consumidor nao identificado</option>
-                  {(customersQuery.data ?? []).map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </option>
-                  ))}
-                </select>
-
-                <Field
-                  label="Desconto geral"
-                  onChange={setSaleDiscount}
-                  value={saleDiscount}
-                />
-
                 <div className="rounded-2xl border border-border/70 bg-secondary/20 p-4">
                   <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Itens</span>
+                    <span className="font-semibold">{totalItems}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Subtotal</span>
                     <span className="font-semibold">{formatCurrency(subtotal)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Pagamentos</span>
+                    <span className="font-semibold">{formatCurrency(paymentTotal)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Falta</span>
+                    <span className="font-semibold">{formatCurrency(missingAmount)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Troco</span>
+                    <span className="font-semibold">{formatCurrency(troco)}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Total</span>
@@ -656,114 +773,18 @@ export function PdvPage() {
                   </div>
                 </div>
 
-                {payments.map((payment) => (
-                  <div
-                    key={payment.id}
-                    className="rounded-2xl border border-border/70 bg-secondary/20 p-4"
-                  >
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <select
-                        className={selectClassName}
-                        onChange={(event) =>
-                          setPayments((current) =>
-                            current.map((entry) =>
-                              entry.id === payment.id
-                                ? {
-                                    ...entry,
-                                    method: event.target.value as PaymentMethodName
-                                  }
-                                : entry
-                            )
-                          )
-                        }
-                        value={payment.method}
-                      >
-                        <option value="CASH">Dinheiro</option>
-                        <option value="PIX">PIX</option>
-                        <option value="DEBIT">Debito</option>
-                        <option value="CREDIT">Credito</option>
-                        <option value="STORE_CREDIT">Credito da loja</option>
-                      </select>
-
-                      <Field
-                        label="Valor"
-                        onChange={(value) =>
-                          setPayments((current) =>
-                            current.map((entry) =>
-                              entry.id === payment.id
-                                ? { ...entry, amount: value }
-                                : entry
-                            )
-                          )
-                        }
-                        value={payment.amount}
-                      />
-
-                      <Field
-                        label="Parcelas"
-                        onChange={(value) =>
-                          setPayments((current) =>
-                            current.map((entry) =>
-                              entry.id === payment.id
-                                ? { ...entry, installments: value }
-                                : entry
-                            )
-                          )
-                        }
-                        value={payment.installments}
-                      />
-
-                      <Field
-                        label="Referencia"
-                        onChange={(value) =>
-                          setPayments((current) =>
-                            current.map((entry) =>
-                              entry.id === payment.id
-                                ? { ...entry, referenceCode: value }
-                                : entry
-                            )
-                          )
-                        }
-                        value={payment.referenceCode}
-                      />
-                    </div>
-                  </div>
-                ))}
-
-                <div className="flex flex-wrap gap-3">
-                  <Button
-                    onClick={() =>
-                      setPayments((current) => [...current, createPaymentRow()])
-                    }
-                    type="button"
-                    variant="outline"
-                  >
-                    Adicionar pagamento
-                  </Button>
-                  <Button
-                    onClick={() =>
-                      setPayments((current) =>
-                        current.map((entry, index) =>
-                          index === 0
-                            ? { ...entry, amount: centsToInputValue(total) }
-                            : entry
-                        )
-                      )
-                    }
-                    type="button"
-                    variant="outline"
-                  >
-                    Usar total
-                  </Button>
-                </div>
-
-                <div className="grid gap-3 md:grid-cols-3">
-                  <MiniInfo label="Pagamentos" value={formatCurrency(paymentTotal)} />
+                <div className="grid gap-3 md:grid-cols-2">
                   <MiniInfo
-                    label="Falta"
-                    value={formatCurrency(Math.max(0, total - paymentTotal))}
+                    label="Cliente"
+                    value={
+                      customerId
+                        ? (customersQuery.data ?? []).find(
+                            (customer) => customer.id === customerId
+                          )?.name || "Selecionado"
+                        : "Consumidor nao identificado"
+                    }
                   />
-                  <MiniInfo label="Troco" value={formatCurrency(troco)} />
+                  <MiniInfo label="Desconto geral" value={saleDiscount} />
                 </div>
 
                 {feedback ? (
@@ -786,17 +807,125 @@ export function PdvPage() {
 
                 <Button
                   className="w-full"
-                  disabled={checkoutMutation.isPending || !cart.length}
-                  onClick={() => checkoutMutation.mutate()}
+                  disabled={!cart.length}
+                  onClick={() => setCheckoutOpen(true)}
                   type="button"
                 >
-                  Finalizar venda
+                  Abrir checkout
                 </Button>
               </CardContent>
             </Card>
           </div>
         </div>
       )}
+
+      <PdvCheckoutDialog
+        checkoutDisabled={!cart.length}
+        checkoutPending={checkoutMutation.isPending}
+        customerId={customerId}
+        customers={customersQuery.data ?? []}
+        feedback={feedback}
+        itemCount={totalItems}
+        missingAmount={missingAmount}
+        onAddPayment={() =>
+          setPayments((current) => [...current, createPaymentRow()])
+        }
+        onCheckout={() => checkoutMutation.mutate()}
+        onCustomerIdChange={setCustomerId}
+        onOpenChange={setCheckoutOpen}
+        onRemovePayment={(paymentId) =>
+          setPayments((current) =>
+            current.length === 1
+              ? current
+              : current.filter((payment) => payment.id !== paymentId)
+          )
+        }
+        onSaleDiscountChange={setSaleDiscount}
+        onUpdatePayment={(paymentId, patch) =>
+          setPayments((current) =>
+            current.map((entry) =>
+              entry.id === paymentId ? { ...entry, ...patch } : entry
+            )
+          )
+        }
+        onUseTotal={() =>
+          setPayments((current) =>
+            current.map((entry, index) =>
+              index === 0 ? { ...entry, amount: centsToInputValue(total) } : entry
+            )
+          )
+        }
+        open={checkoutOpen}
+        paymentTotal={paymentTotal}
+        payments={payments}
+        saleDiscount={saleDiscount}
+        subtotal={subtotal}
+        total={total}
+        troco={troco}
+      />
+
+      <Dialog open={checkoutSuccessOpen && Boolean(lastSale)} onOpenChange={setCheckoutSuccessOpen}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <span className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                <CheckCircle2 className="h-6 w-6" />
+              </span>
+              <div className="space-y-1">
+                <DialogTitle>Venda concluida</DialogTitle>
+                <DialogDescription>
+                  {lastSale
+                    ? `Venda ${lastSale.saleNumber} registrada com total de ${formatCurrency(lastSale.total)}.`
+                    : "A operacao foi concluida com sucesso."}
+                </DialogDescription>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {lastSale ? (
+            <DialogBody className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <MiniInfo label="Venda" value={lastSale.saleNumber} />
+                <MiniInfo
+                  label="Cliente"
+                  value={lastSale.customer?.name || "Consumidor final"}
+                />
+                <MiniInfo label="Total" value={formatCurrency(lastSale.total)} />
+              </div>
+            </DialogBody>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              onClick={() => setCheckoutSuccessOpen(false)}
+              type="button"
+              variant="outline"
+            >
+              Fechar
+            </Button>
+            {lastSale ? (
+              <Button asChild type="button" variant="outline">
+                <Link
+                  onClick={() => setCheckoutSuccessOpen(false)}
+                  to={`/sales/${lastSale.id}`}
+                >
+                  Abrir venda
+                </Link>
+              </Button>
+            ) : null}
+            {hasPermission("fiscal.issue") && lastSale ? (
+              <Button
+                disabled={receiptPrintPending}
+                onClick={() => void handlePrintLastSaleReceipt()}
+                type="button"
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                {receiptPrintPending ? "Abrindo comprovante..." : "Imprimir comprovante"}
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,21 +1,23 @@
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Printer, Undo2 } from "lucide-react";
+import { Printer, Undo2 } from "lucide-react";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
 import { ProductImage } from "@/components/app/product-image";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   cancelFiscalDocument,
   getFiscalDocument,
-  getSale,
-  issueInternalReceipt
+  getSale
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
+import { openFiscalReceiptPrintWindow } from "@/lib/fiscal-receipt";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 const textareaClassName =
   "flex min-h-24 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -24,12 +26,9 @@ export function SaleDetailPage() {
   const { id = "" } = useParams();
   const { authEnabled, hasPermission, session } = useAppSession();
   const token = authEnabled ? session.accessToken : undefined;
-  const [feedback, setFeedback] = useState<{
-    tone: "success" | "error";
-    text: string;
-  } | null>(null);
   const [showCancelForm, setShowCancelForm] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [printPending, setPrintPending] = useState(false);
 
   const saleQuery = useQuery({
     queryKey: ["sales", id],
@@ -48,25 +47,6 @@ export function SaleDetailPage() {
     () => sale?.user?.name || "Operacao local",
     [sale?.user?.name]
   );
-  const issueMutation = useMutation({
-    mutationFn: async () => issueInternalReceipt(token, id),
-    onSuccess: async (document) => {
-      setFeedback({
-        tone: "success",
-        text: `Comprovante ${document.receiptNumber || document.id} emitido com sucesso.`
-      });
-      setShowCancelForm(false);
-      setCancelReason("");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["sales"] }),
-        queryClient.invalidateQueries({ queryKey: ["sales", id] }),
-        queryClient.invalidateQueries({ queryKey: ["fiscal"] }),
-        queryClient.invalidateQueries({ queryKey: ["reports"] }),
-        queryClient.invalidateQueries({ queryKey: ["dashboard"] })
-      ]);
-    },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
-  });
   const cancelMutation = useMutation({
     mutationFn: async () =>
       sale?.fiscalDocument
@@ -77,10 +57,7 @@ export function SaleDetailPage() {
           )
         : Promise.reject(new Error("Documento fiscal/documental nao encontrado.")),
     onSuccess: async (document) => {
-      setFeedback({
-        tone: "success",
-        text: `Comprovante ${document.receiptNumber || document.id} cancelado com sucesso.`
-      });
+      success(`Comprovante ${document.receiptNumber || document.id} cancelado com sucesso.`);
       setShowCancelForm(false);
       setCancelReason("");
       await Promise.all([
@@ -91,24 +68,45 @@ export function SaleDetailPage() {
         queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
+
+  async function handlePrintReceipt() {
+    try {
+      setPrintPending(true);
+      await openFiscalReceiptPrintWindow(token, id);
+      success("Comprovante aberto em nova aba para impressao.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sales"] }),
+        queryClient.invalidateQueries({ queryKey: ["sales", id] }),
+        queryClient.invalidateQueries({ queryKey: ["fiscal"] }),
+        queryClient.invalidateQueries({ queryKey: ["reports"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+      ]);
+    } catch (error) {
+      toastError(parseApiError(error));
+    } finally {
+      setPrintPending(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
       <PageHeader
+        backHref="/sales"
         actions={
           <>
-            <Button asChild variant="outline">
-              <Link to="/sales">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Voltar
-              </Link>
-            </Button>
-            <Button onClick={() => window.print()} type="button" variant="outline">
-              <Printer className="mr-2 h-4 w-4" />
-              Imprimir
-            </Button>
+            {hasPermission("fiscal.issue") && sale?.status === "COMPLETED" ? (
+              <Button
+                disabled={printPending}
+                onClick={() => void handlePrintReceipt()}
+                type="button"
+                variant="outline"
+              >
+                <Printer className="mr-2 h-4 w-4" />
+                {printPending ? "Abrindo comprovante..." : "Imprimir comprovante"}
+              </Button>
+            ) : null}
             {hasPermission("sale-returns.create") && sale && sale.status !== "CANCELED" ? (
               <Button asChild type="button" variant="outline">
                 <Link to={`/sale-returns/new?saleId=${sale.id}`}>
@@ -117,26 +115,12 @@ export function SaleDetailPage() {
                 </Link>
               </Button>
             ) : null}
-            {hasPermission("fiscal.issue") &&
-            sale &&
-            !sale.fiscalDocument &&
-            sale.status === "COMPLETED" ? (
-              <Button
-                disabled={issueMutation.isPending}
-                onClick={() => issueMutation.mutate()}
-                type="button"
-                variant="outline"
-              >
-                Emitir comprovante
-              </Button>
-            ) : null}
             {hasPermission("fiscal.cancel") &&
             sale?.fiscalDocument &&
             sale.fiscalDocument.status === "AUTHORIZED" ? (
               <Button
                 disabled={cancelMutation.isPending}
                 onClick={() => {
-                  setFeedback(null);
                   setShowCancelForm((current) => !current);
                 }}
                 type="button"
@@ -152,8 +136,7 @@ export function SaleDetailPage() {
             ) : null}
           </>
         }
-        description="Ficha completa da venda com itens, pagamentos, status comercial e dados fiscais quando existirem."
-        eyebrow="Operacao"
+        subtitle="Ficha completa da venda com itens, pagamentos, status comercial e dados fiscais quando existirem."
         title={sale ? `Venda ${sale.saleNumber}` : "Detalhe da venda"}
       />
 
@@ -168,19 +151,7 @@ export function SaleDetailPage() {
       {saleQuery.error ? (
         <Card className="bg-white/90">
           <CardContent className="p-6 text-sm text-red-700">
-            {(saleQuery.error as Error).message}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {feedback ? (
-        <Card className="bg-white/90">
-          <CardContent
-            className={`p-4 text-sm ${
-              feedback.tone === "success" ? "text-green-700" : "text-red-700"
-            }`}
-          >
-            {feedback.text}
+            {parseApiError(saleQuery.error)}
           </CardContent>
         </Card>
       ) : null}
@@ -188,7 +159,7 @@ export function SaleDetailPage() {
       {fiscalDocumentQuery.error ? (
         <Card className="bg-white/90">
           <CardContent className="p-4 text-sm text-red-700">
-            {(fiscalDocumentQuery.error as Error).message}
+            {parseApiError(fiscalDocumentQuery.error)}
           </CardContent>
         </Card>
       ) : null}

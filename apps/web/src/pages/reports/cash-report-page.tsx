@@ -1,42 +1,46 @@
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, RefreshCw } from "lucide-react";
-import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  ArrowDownCircle,
+  ArrowUpCircle,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Receipt,
+  RefreshCw,
+  Wallet
+} from "lucide-react";
+import { useAppSession } from "@/app/session-context";
+import { Button } from "@/components/ui/button";
+import { DetailCard } from "@/components/ui/detail-card";
+import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
+import {
+  type CashReport,
   downloadCashReportCsv,
   getCashReport,
   listCashTerminals
 } from "@/lib/api";
-import {
-  formatCompactNumber,
-  formatCurrency,
-  formatDateTime
-} from "@/lib/format";
-import {
-  downloadBrowserFile,
-  DualSeriesBarChart,
-  ReportMetricCard,
-  selectClassName
-} from "@/features/reports/reporting-ui";
+import { parseApiError } from "@/lib/api-error";
+import { formatCompactNumber, formatCurrency, formatDateTime } from "@/lib/format";
+import { downloadBrowserFile, DualSeriesBarChart } from "@/features/reports/reporting-ui";
 import { monthStartDateValue, shortDateLabel, todayDateValue } from "@/features/reports/report-utils";
-import { Input } from "@/components/ui/input";
+import {
+  CashSessionStatusBadge,
+  formatCashMovementPayment,
+  formatCashMovementType,
+  reportFieldClassName,
+  reportSelectClassName
+} from "@/pages/reports/reports-shared";
 
 export function CashReportPage() {
   const { authEnabled, session } = useAppSession();
   const token = authEnabled ? session.accessToken : undefined;
   const [cashTerminalId, setCashTerminalId] = useState("");
-  const [sessionStatus, setSessionStatus] = useState<"" | "OPEN" | "CLOSED">("");
-  const [movementType, setMovementType] = useState<
-    "" | "OPENING" | "SALE" | "SUPPLY" | "WITHDRAWAL" | "CLOSING" | "REFUND"
-  >("");
-  const [paymentMethod, setPaymentMethod] = useState<
-    "" | "CASH" | "PIX" | "DEBIT" | "CREDIT" | "STORE_CREDIT"
-  >("");
   const [startDate, setStartDate] = useState(monthStartDateValue());
   const [endDate, setEndDate] = useState(todayDateValue());
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
 
   const terminalsQuery = useQuery({
     queryKey: ["cash", "terminals", "reports"],
@@ -44,22 +48,10 @@ export function CashReportPage() {
   });
 
   const reportQuery = useQuery({
-    queryKey: [
-      "reports",
-      "cash",
-      cashTerminalId,
-      sessionStatus,
-      movementType,
-      paymentMethod,
-      startDate,
-      endDate
-    ],
+    queryKey: ["reports", "cash", cashTerminalId, startDate, endDate],
     queryFn: () =>
       getCashReport(token, {
         cashTerminalId: cashTerminalId || undefined,
-        sessionStatus: sessionStatus || undefined,
-        movementType: movementType || undefined,
-        paymentMethod: paymentMethod || undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         take: 120
@@ -70,9 +62,6 @@ export function CashReportPage() {
     mutationFn: () =>
       downloadCashReportCsv(token, {
         cashTerminalId: cashTerminalId || undefined,
-        sessionStatus: sessionStatus || undefined,
-        movementType: movementType || undefined,
-        paymentMethod: paymentMethod || undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined
       }),
@@ -82,32 +71,45 @@ export function CashReportPage() {
   });
 
   const report = reportQuery.data;
+  const errorMessage = getErrorMessage(reportQuery.error) ?? getErrorMessage(exportMutation.error);
+
+  const movementsBySessionId = useMemo(() => {
+    const groups = new Map<string, CashReport["movements"]>();
+
+    for (const movement of report?.movements ?? []) {
+      const current = groups.get(movement.sessionId) ?? [];
+      current.push(movement);
+      groups.set(movement.sessionId, current);
+    }
+
+    return groups;
+  }, [report?.movements]);
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Relatorios"
-        title="Relatorio de caixa"
-        description="Fluxo de caixa real por terminal, sessao e movimento, com conciliacao de entradas, saidas e diferenca de fechamento."
         actions={
           <>
             <Button onClick={() => void reportQuery.refetch()} type="button" variant="outline">
               <RefreshCw className="mr-2 h-4 w-4" />
               Atualizar
             </Button>
-            <Button disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()} type="button">
+            <Button
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+              type="button"
+            >
               <Download className="mr-2 h-4 w-4" />
-              CSV
+              Exportar CSV
             </Button>
           </>
         }
+        subtitle="Sessoes de caixa por terminal, com expansao dos movimentos registrados no periodo."
+        title="Relatorio de caixa"
       />
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Filtros</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-[220px_180px_220px_220px_180px_180px]">
+      <DetailCard title="Filtros">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <SelectField
             label="Terminal"
             onChange={setCashTerminalId}
@@ -117,198 +119,226 @@ export function CashReportPage() {
             }))}
             value={cashTerminalId}
           />
-          <SelectField
-            label="Sessao"
-            onChange={(value) => setSessionStatus(value as typeof sessionStatus)}
-            options={[
-              { label: "Aberta", value: "OPEN" },
-              { label: "Fechada", value: "CLOSED" }
-            ]}
-            value={sessionStatus}
-          />
-          <SelectField
-            label="Movimento"
-            onChange={(value) => setMovementType(value as typeof movementType)}
-            options={[
-              { label: "Abertura", value: "OPENING" },
-              { label: "Venda", value: "SALE" },
-              { label: "Suprimento", value: "SUPPLY" },
-              { label: "Sangria", value: "WITHDRAWAL" },
-              { label: "Fechamento", value: "CLOSING" },
-              { label: "Estorno", value: "REFUND" }
-            ]}
-            value={movementType}
-          />
-          <SelectField
-            label="Pagamento"
-            onChange={(value) => setPaymentMethod(value as typeof paymentMethod)}
-            options={[
-              { label: "Dinheiro", value: "CASH" },
-              { label: "PIX", value: "PIX" },
-              { label: "Debito", value: "DEBIT" },
-              { label: "Credito", value: "CREDIT" },
-              { label: "Credito loja", value: "STORE_CREDIT" }
-            ]}
-            value={paymentMethod}
-          />
-          <FieldDate label="De" onChange={setStartDate} value={startDate} />
-          <FieldDate label="Ate" onChange={setEndDate} value={endDate} />
-        </CardContent>
-      </Card>
+          <DateField label="Data inicio" onChange={setStartDate} value={startDate} />
+          <DateField label="Data fim" onChange={setEndDate} value={endDate} />
+        </div>
+        {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
+      </DetailCard>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <ReportMetricCard
-          helper="Sessoes retornadas no recorte"
+        <StatCard
+          icon={<Receipt className="h-5 w-5" />}
           label="Sessoes"
           value={formatCompactNumber(report?.summary.sessionCount ?? 0)}
         />
-        <ReportMetricCard
-          helper="Entradas em dinheiro do periodo"
+        <StatCard
+          icon={<ArrowDownCircle className="h-5 w-5" />}
           label="Entradas"
           value={formatCurrency(report?.summary.totalInflow ?? 0)}
+          variant="success"
         />
-        <ReportMetricCard
-          helper="Saidas em dinheiro do periodo"
+        <StatCard
+          icon={<ArrowUpCircle className="h-5 w-5" />}
           label="Saidas"
           value={formatCurrency(report?.summary.totalOutflow ?? 0)}
+          variant="warning"
         />
-        <ReportMetricCard
-          helper="Entradas menos saidas"
+        <StatCard
+          icon={<Wallet className="h-5 w-5" />}
           label="Fluxo liquido"
           value={formatCurrency(report?.summary.netCashFlow ?? 0)}
         />
-        <ReportMetricCard
-          helper="Vendas recebidas em dinheiro"
+        <StatCard
+          icon={<Wallet className="h-5 w-5" />}
           label="Vendas cash"
           value={formatCurrency(report?.summary.totalSalesCash ?? 0)}
         />
-        <ReportMetricCard
-          helper="Diferenca registrada nos fechamentos"
+        <StatCard
+          icon={<ArrowUpCircle className="h-5 w-5" />}
           label="Diferenca"
           value={formatCurrency(report?.summary.closingDifferenceTotal ?? 0)}
+          variant="danger"
         />
       </div>
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Fluxo diario</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DualSeriesBarChart
-            emptyMessage="Sem movimentacoes de caixa no periodo filtrado."
-            entries={(report?.charts.dailyFlow ?? []).map((entry) => ({
-              label: shortDateLabel(entry.date),
-              firstValue: entry.inflow,
-              secondValue: entry.outflow
-            }))}
-            firstColorClassName="bg-emerald-500/80"
-            firstLabel="Entradas"
-            formatValue={formatCurrency}
-            secondColorClassName="bg-orange-500/80"
-            secondLabel="Saidas"
-          />
-        </CardContent>
-      </Card>
+      <DetailCard title="Fluxo diario">
+        <DualSeriesBarChart
+          emptyMessage="Sem movimentacoes de caixa no periodo filtrado."
+          entries={(report?.charts.dailyFlow ?? []).map((entry) => ({
+            label: shortDateLabel(entry.date),
+            firstValue: entry.inflow,
+            secondValue: entry.outflow
+          }))}
+          firstColorClassName="bg-emerald-500/80"
+          firstLabel="Entradas"
+          formatValue={formatCurrency}
+          secondColorClassName="bg-orange-500/80"
+          secondLabel="Saidas"
+        />
+      </DetailCard>
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Sessoes</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">Carregando relatorio...</div>
-          ) : null}
-          {reportQuery.error ? (
-            <div className="p-6 text-sm text-red-700">{(reportQuery.error as Error).message}</div>
-          ) : null}
-          {report?.sessions.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-border/70 bg-secondary/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Terminal</th>
-                    <th className="px-4 py-3 font-medium">Abertura</th>
-                    <th className="px-4 py-3 font-medium">Fechamento</th>
-                    <th className="px-4 py-3 font-medium">Fluxo</th>
-                    <th className="px-4 py-3 font-medium">Vendas</th>
-                    <th className="px-4 py-3 font-medium">Diferenca</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.sessions.map((row) => (
-                    <tr key={row.id} className="border-b border-border/60">
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p className="font-semibold">{row.terminal.name}</p>
-                          <p className="text-xs text-muted-foreground">{row.status}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">{formatDateTime(row.openedAt)}</td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {row.closedAt ? formatDateTime(row.closedAt) : "Sessao aberta"}
-                      </td>
-                      <td className="px-4 py-4 font-semibold">{formatCurrency(row.netFlow)}</td>
-                      <td className="px-4 py-4">
-                        {formatCompactNumber(row.salesCount)} • {formatCurrency(row.salesTotal)}
-                      </td>
-                      <td className="px-4 py-4">{formatCurrency(row.difference ?? 0)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : !reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              Nenhuma sessao encontrada para os filtros atuais.
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <DetailCard title="Sessoes do periodo">
+        {reportQuery.isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div className="list-skeleton-shimmer h-14 rounded-xl" key={index} />
+            ))}
+          </div>
+        ) : null}
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Movimentacoes</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {report?.movements.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-border/70 bg-secondary/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Data</th>
-                    <th className="px-4 py-3 font-medium">Terminal</th>
-                    <th className="px-4 py-3 font-medium">Tipo</th>
-                    <th className="px-4 py-3 font-medium">Pagamento</th>
-                    <th className="px-4 py-3 font-medium">Valor</th>
-                    <th className="px-4 py-3 font-medium">Descricao</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.movements.map((row) => (
-                    <tr key={row.id} className="border-b border-border/60">
-                      <td className="px-4 py-4">{formatDateTime(row.createdAt)}</td>
-                      <td className="px-4 py-4">{row.terminal.name}</td>
-                      <td className="px-4 py-4 font-semibold">{row.movementType}</td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {row.paymentMethod || "CASH"}
-                      </td>
-                      <td className="px-4 py-4">{formatCurrency(row.amount)}</td>
-                      <td className="px-4 py-4 text-muted-foreground">{row.description || "Sem descricao"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : !reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              Nenhuma movimentacao encontrada para os filtros atuais.
-            </div>
-          ) : null}
-          {exportMutation.error ? (
-            <div className="px-6 pb-4 text-sm text-red-700">{(exportMutation.error as Error).message}</div>
-          ) : null}
-        </CardContent>
-      </Card>
+        {!reportQuery.isLoading && report?.sessions.length ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead
+                className="border-b border-border/70 text-muted-foreground"
+                style={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+              >
+                <tr>
+                  <th className="w-12 px-4 py-3 font-medium" />
+                  <th className="px-4 py-3 font-medium">Data</th>
+                  <th className="px-4 py-3 font-medium">Terminal</th>
+                  <th className="px-4 py-3 font-medium">Operador</th>
+                  <th className="px-4 py-3 font-medium">Abertura</th>
+                  <th className="px-4 py-3 font-medium">Fechamento</th>
+                  <th className="px-4 py-3 font-medium">Diferenca</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.sessions.map((row) => {
+                  const expanded = expandedSessionId === row.id;
+                  const movements = movementsBySessionId.get(row.id) ?? [];
+
+                  return (
+                    <Fragment key={row.id}>
+                      <tr
+                        className="cursor-pointer border-b border-border/60 transition-colors hover:bg-white/5"
+                        onClick={() =>
+                          setExpandedSessionId((current) => (current === row.id ? null : row.id))
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setExpandedSessionId((current) =>
+                              current === row.id ? null : row.id
+                            );
+                          }
+                        }}
+                        role="button"
+                        tabIndex={0}
+                      >
+                        <td className="px-4 py-4">
+                          {expanded ? (
+                            <ChevronUp className="h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="h-4 w-4" />
+                          )}
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="space-y-1">
+                            <p className="font-semibold">{formatDateTime(row.openedAt)}</p>
+                            <CashSessionStatusBadge status={row.status} />
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">{row.terminal.name}</td>
+                        <td className="px-4 py-4">
+                          {row.openedByUser?.name || "Sem operador"}
+                        </td>
+                        <td className="px-4 py-4">{formatCurrency(row.openingAmount)}</td>
+                        <td className="px-4 py-4">
+                          {row.closingAmount !== null
+                            ? formatCurrency(row.closingAmount)
+                            : "Sessao aberta"}
+                        </td>
+                        <td className="px-4 py-4 font-semibold">
+                          {formatCurrency(row.difference ?? 0)}
+                        </td>
+                      </tr>
+                      {expanded ? (
+                        <tr className="border-b border-border/60">
+                          <td className="px-4 pb-5 pt-0" colSpan={7}>
+                            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                              <p
+                                className="mb-3 text-sm font-semibold"
+                                style={{ color: "var(--color-text)" }}
+                              >
+                                Movimentos da sessao
+                              </p>
+                              {movements.length ? (
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full text-left text-sm">
+                                    <thead
+                                      className="border-b border-border/60"
+                                      style={{ color: "var(--color-text-muted)" }}
+                                    >
+                                      <tr>
+                                        <th className="px-3 py-2 font-medium">Data/hora</th>
+                                        <th className="px-3 py-2 font-medium">Tipo</th>
+                                        <th className="px-3 py-2 font-medium">Pagamento</th>
+                                        <th className="px-3 py-2 font-medium">Valor</th>
+                                        <th className="px-3 py-2 font-medium">Descricao</th>
+                                        <th className="px-3 py-2 font-medium">Referencia</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {movements.map((movement) => (
+                                        <tr
+                                          className="border-b border-white/5 last:border-b-0"
+                                          key={movement.id}
+                                        >
+                                          <td className="px-3 py-3">
+                                            {formatDateTime(movement.createdAt)}
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            {formatCashMovementType(movement.movementType)}
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            {formatCashMovementPayment(
+                                              movement.paymentMethod,
+                                              movement.movementType
+                                            )}
+                                          </td>
+                                          <td className="px-3 py-3 font-semibold">
+                                            {formatCurrency(movement.amount)}
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            {movement.description || "Sem descricao"}
+                                          </td>
+                                          <td className="px-3 py-3">
+                                            {movement.referenceType && movement.referenceId
+                                              ? `${movement.referenceType} • ${movement.referenceId}`
+                                              : "Sem referencia"}
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              ) : (
+                                <p
+                                  className="text-sm"
+                                  style={{ color: "var(--color-text-muted)" }}
+                                >
+                                  Nenhum movimento encontrado para esta sessao no periodo.
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {!reportQuery.isLoading && !report?.sessions.length ? (
+          <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+            Nenhuma sessao encontrada para os filtros atuais.
+          </p>
+        ) : null}
+      </DetailCard>
     </div>
   );
 }
@@ -326,8 +356,12 @@ function SelectField({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{label}</label>
-      <select className={selectClassName} onChange={(event) => onChange(event.target.value)} value={value}>
+      <FieldLabel>{label}</FieldLabel>
+      <select
+        className={reportSelectClassName}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
         <option value="">Todos</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -339,7 +373,7 @@ function SelectField({
   );
 }
 
-function FieldDate({
+function DateField({
   label,
   value,
   onChange
@@ -350,8 +384,36 @@ function FieldDate({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{label}</label>
-      <Input onChange={(event) => onChange(event.target.value)} type="date" value={value} />
+      <FieldLabel>{label}</FieldLabel>
+      <Input
+        className={reportFieldClassName}
+        onChange={(event) => onChange(event.target.value)}
+        type="date"
+        value={value}
+      />
     </div>
   );
+}
+
+function FieldLabel({ children }: { children: string }) {
+  return (
+    <label
+      className="text-[13px] font-medium"
+      style={{ color: "var(--color-text-muted)" }}
+    >
+      {children}
+    </label>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {message}
+    </div>
+  );
+}
+
+function getErrorMessage(error: unknown) {
+  return error ? parseApiError(error) : null;
 }

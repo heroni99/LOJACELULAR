@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException
 } from "@nestjs/common";
@@ -24,6 +25,7 @@ import { ListSalesDto } from "./dto/list-sales.dto";
 
 type SalesAuditContext = {
   userId?: string | null;
+  storeId?: string | null;
   ipAddress?: string | null;
   userAgent?: string | string[] | undefined;
 };
@@ -170,8 +172,11 @@ export class SalesService {
     private readonly auditService: AuditService
   ) {}
 
-  async findAll(filters: ListSalesDto) {
+  async findAll(storeId: string, filters: ListSalesDto) {
+    this.assertStoreScope(storeId);
+
     const where: Prisma.SaleWhereInput = {
+      storeId,
       ...(filters.customerId ? { customerId: filters.customerId } : {}),
       ...(filters.userId ? { userId: filters.userId } : {}),
       ...(filters.status ? { status: filters.status } : {}),
@@ -221,10 +226,13 @@ export class SalesService {
     });
   }
 
-  async findById(id: string) {
-    const sale = await this.prisma.sale.findUnique({
+  async findById(id: string, storeId: string) {
+    this.assertStoreScope(storeId);
+
+    const sale = await this.prisma.sale.findFirst({
       where: {
-        id
+        id,
+        storeId
       },
       include: saleDetailInclude
     });
@@ -237,6 +245,8 @@ export class SalesService {
   }
 
   async checkout(payload: CheckoutSaleDto, context: SalesAuditContext) {
+    this.assertStoreScope(context.storeId);
+
     if (!payload.items.length) {
       throw new BadRequestException("Informe ao menos um item no carrinho.");
     }
@@ -261,6 +271,12 @@ export class SalesService {
     if (session.status !== CashSessionStatus.OPEN) {
       throw new BadRequestException(
         "A venda exige uma sessao de caixa aberta."
+      );
+    }
+
+    if (session.cashTerminal.storeId !== context.storeId) {
+      throw new ForbiddenException(
+        "A sessao de caixa informada nao pertence a loja atual."
       );
     }
 
@@ -656,5 +672,11 @@ export class SalesService {
     const date = new Date(value);
     date.setUTCHours(23, 59, 59, 999);
     return date;
+  }
+
+  private assertStoreScope(storeId?: string | null): asserts storeId is string {
+    if (!storeId) {
+      throw new ForbiddenException("Loja do operador nao encontrada para a venda.");
+    }
   }
 }

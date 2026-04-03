@@ -1,18 +1,21 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
+import { PageHeader } from "@/components/ui/page-header";
 import { createPurchaseOrder, listProducts, listSuppliers } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { formatCurrency, parseCurrencyToCents } from "@/lib/format";
+import { success } from "@/lib/toast";
 import {
   AdvancedFeedback,
   advancedSelectClassName,
@@ -78,8 +81,11 @@ export function PurchaseOrderFormPage() {
           unitCost: parseCurrencyToCents(item.unitCost)
         }))
       }),
-    onSuccess: (order) => navigate(`/purchase-orders/${order.id}`),
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onSuccess: (order) => {
+      success("Pedido de compra criado com sucesso.");
+      navigate(`/purchase-orders/${order.id}`);
+    },
+    onError: (error: Error) => setFeedback({ tone: "error", text: parseApiError(error) })
   });
 
   const watchItems = form.watch("items");
@@ -92,17 +98,9 @@ export function PurchaseOrderFormPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Compras"
+        backHref="/purchase-orders"
+        subtitle="Monte o pedido em rascunho, vincule fornecedor e prepare o recebimento real em estoque."
         title="Novo pedido de compra"
-        description="Monte o pedido em rascunho, vincule fornecedor e prepare o recebimento real em estoque."
-        actions={
-          <Button asChild type="button" variant="outline">
-            <Link to="/purchase-orders">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar
-            </Link>
-          </Button>
-        }
       />
 
       <AdvancedFeedback feedback={feedback} />
@@ -231,9 +229,9 @@ export function PurchaseOrderFormPage() {
         ) : null}
 
         <div className="flex justify-end">
-          <Button disabled={createMutation.isPending} type="submit">
-            {createMutation.isPending ? "Salvando..." : "Criar pedido"}
-          </Button>
+          <LoadingButton isLoading={createMutation.isPending} loadingText="Salvando..." type="submit">
+            Criar pedido
+          </LoadingButton>
         </div>
       </form>
     </div>

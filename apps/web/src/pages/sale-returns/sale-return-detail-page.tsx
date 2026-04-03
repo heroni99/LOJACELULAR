@@ -1,8 +1,8 @@
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Link2 } from "lucide-react";
+import { Link2 } from "lucide-react";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSaleReturn } from "@/lib/api";
@@ -36,24 +36,16 @@ export function SaleReturnDetailPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Pos-venda"
+        backHref="/sale-returns"
+        subtitle={`Venda ${record.sale.saleNumber} • ${record.customer?.name ?? "Consumidor final"}`}
         title={record.returnNumber}
-        description={`Venda ${record.sale.saleNumber} • ${record.customer?.name ?? "Consumidor final"}`}
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button asChild type="button" variant="outline">
-              <Link to="/sale-returns">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Voltar
-              </Link>
-            </Button>
-            <Button asChild type="button" variant="outline">
-              <Link to={`/sales/${record.sale.id}`}>
-                <Link2 className="mr-2 h-4 w-4" />
-                Abrir venda
-              </Link>
-            </Button>
-          </div>
+          <Button asChild type="button" variant="outline">
+            <Link to={`/sales/${record.sale.id}`}>
+              <Link2 className="mr-2 h-4 w-4" />
+              Abrir venda
+            </Link>
+          </Button>
         }
       />
 

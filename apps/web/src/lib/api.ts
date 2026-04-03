@@ -10,6 +10,15 @@ import {
   type RefreshSessionInput,
   type ScannerSessionStatus
 } from "@/shared";
+import {
+  type ApiErrorBody,
+  createApiHttpError,
+  isApiHttpError,
+  markApiErrorAsHandled,
+  parseApiError
+} from "./api-error";
+import { clearStoredSession } from "./session-storage";
+import { error as toastError } from "./toast";
 
 function resolveApiUrl() {
   const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
@@ -26,278 +35,103 @@ function resolveApiUrl() {
 
 const API_URL = resolveApiUrl();
 export const API_ORIGIN = API_URL.replace(/\/api$/, "");
+const GLOBAL_SERVER_ERROR_THROTTLE_MS = 5000;
+const PENDING_TOAST_STORAGE_KEY = "lojacelular.pending-toast";
+const recentGlobalErrors = new Map<string, number>();
 
-const fieldLabels: Record<string, string> = {
-  action: "acao",
-  active: "status ativo",
-  address: "endereco",
-  amount: "valor",
-  bannerUrl: "URL do banner",
-  brand: "marca",
-  cashSessionId: "sessao de caixa",
-  cashTerminalId: "terminal de caixa",
-  categoryId: "categoria",
-  city: "cidade",
-  closingAmount: "valor de fechamento",
-  cnpj: "CNPJ",
-  countedQuantity: "saldo contado",
-  contactName: "contato",
-  costPrice: "preco de custo",
-  cpfCnpj: "CPF/CNPJ",
-  customerId: "cliente",
-  defaultSerialized: "serializacao padrao",
-  description: "descricao",
-  discountAmount: "desconto",
-  displayName: "nome exibido",
-  dueDate: "vencimento",
-  email: "e-mail",
-  endDate: "data final",
-  entity: "entidade",
-  fromLocationId: "local de origem",
-  hasSerialControl: "controle serial",
-  heroBannerEnabled: "banner principal",
-  installments: "parcelas",
-  isService: "servico",
-  limit: "limite",
-  locationId: "local de estoque",
-  logoUrl: "URL da logo",
-  lowStockOnly: "somente estoque baixo",
-  model: "modelo",
-  movementType: "tipo de movimentacao",
-  mustChangePassword: "troca obrigatoria de senha",
-  name: "nome",
-  needsPriceReview: "revisao de preco",
-  newPassword: "nova senha",
-  notes: "observacoes",
-  openingAmount: "valor de abertura",
-  password: "senha",
-  paymentMethod: "forma de pagamento",
-  phone: "telefone",
-  phone2: "telefone 2",
-  prefix: "prefixo",
-  primaryColor: "cor primaria",
-  productId: "produto",
-  quantity: "quantidade",
-  reason: "motivo do ajuste",
-  referenceCode: "codigo de referencia",
-  roleId: "papel",
-  salePrice: "preco de venda",
-  search: "busca",
-  secondaryColor: "cor secundaria",
-  sequenceName: "sequence_name",
-  startDate: "data inicial",
-  state: "UF",
-  stateRegistration: "inscricao estadual",
-  status: "status",
-  stockMin: "estoque minimo",
-  storeId: "loja",
-  supplierCode: "codigo do fornecedor",
-  supplierId: "fornecedor",
-  take: "limite",
-  term: "busca",
-  toLocationId: "local de destino",
-  tradeName: "nome fantasia",
-  unitPrice: "preco unitario",
-  userId: "usuario",
-  zipCode: "CEP"
+type RequestMetadata = {
+  path?: string;
+  authenticated?: boolean;
+  skipUnauthorizedRedirect?: boolean;
+  skipGlobalErrorToast?: boolean;
 };
 
-function toSentenceCase(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
+function shouldEmitGlobalServerErrorToast(message: string) {
+  const now = Date.now();
+  const lastShownAt = recentGlobalErrors.get(message) ?? 0;
 
-function humanizeFieldName(fieldName: string) {
-  const mapped = fieldLabels[fieldName];
-  if (mapped) {
-    return toSentenceCase(mapped);
+  if (now - lastShownAt < GLOBAL_SERVER_ERROR_THROTTLE_MS) {
+    return false;
   }
 
-  return toSentenceCase(
-    fieldName
-      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-      .replace(/_/g, " ")
-      .toLowerCase()
-  );
-}
+  recentGlobalErrors.set(message, now);
 
-function translateErrorText(message: string) {
-  const normalizedMessage = message.trim();
-
-  if (/^Failed to fetch$/i.test(normalizedMessage)) {
-    return "Nao foi possivel conectar com o servidor.";
-  }
-
-  if (/^NetworkError/i.test(normalizedMessage) || /^Load failed$/i.test(normalizedMessage)) {
-    return "Nao foi possivel concluir a requisicao por falha de rede.";
-  }
-
-  const stringMatch = message.match(/^([A-Za-z0-9_]+) must be a string$/i);
-  if (stringMatch) {
-    return `${humanizeFieldName(stringMatch[1])} deve ser um texto.`;
-  }
-
-  const emailMatch = message.match(/^([A-Za-z0-9_]+) must be an email$/i);
-  if (emailMatch) {
-    return `${humanizeFieldName(emailMatch[1])} deve ser um e-mail valido.`;
-  }
-
-  const maxLengthMatch = message.match(
-    /^([A-Za-z0-9_]+) must be shorter than or equal to (\d+) characters$/i
-  );
-  if (maxLengthMatch) {
-    return `${humanizeFieldName(maxLengthMatch[1])} deve ter no maximo ${maxLengthMatch[2]} caracteres.`;
-  }
-
-  const minLengthMatch = message.match(
-    /^([A-Za-z0-9_]+) must be longer than or equal to (\d+) characters$/i
-  );
-  if (minLengthMatch) {
-    return `${humanizeFieldName(minLengthMatch[1])} deve ter no minimo ${minLengthMatch[2]} caracteres.`;
-  }
-
-  const emptyMatch = message.match(/^([A-Za-z0-9_]+) should not be empty$/i);
-  if (emptyMatch) {
-    return `${humanizeFieldName(emptyMatch[1])} e obrigatorio.`;
-  }
-
-  const uuidMatch = message.match(/^([A-Za-z0-9_]+) must be a UUID$/i);
-  if (uuidMatch) {
-    return `${humanizeFieldName(uuidMatch[1])} deve ser um identificador valido.`;
-  }
-
-  const numberMatch = message.match(
-    /^([A-Za-z0-9_]+) must be a number conforming to the specified constraints$/i
-  );
-  if (numberMatch) {
-    return `${humanizeFieldName(numberMatch[1])} deve ser um numero valido.`;
-  }
-
-  const intMatch = message.match(/^([A-Za-z0-9_]+) must be an integer number$/i);
-  if (intMatch) {
-    return `${humanizeFieldName(intMatch[1])} deve ser um numero inteiro.`;
-  }
-
-  const minValueMatch = message.match(/^([A-Za-z0-9_]+) must not be less than (\d+)$/i);
-  if (minValueMatch) {
-    return `${humanizeFieldName(minValueMatch[1])} deve ser maior ou igual a ${minValueMatch[2]}.`;
-  }
-
-  const boolMatch = message.match(/^([A-Za-z0-9_]+) must be a boolean value$/i);
-  if (boolMatch) {
-    return `${humanizeFieldName(boolMatch[1])} deve ser verdadeiro ou falso.`;
-  }
-
-  const urlMatch = message.match(/^([A-Za-z0-9_]+) must be a URL address$/i);
-  if (urlMatch) {
-    return `${humanizeFieldName(urlMatch[1])} deve ser uma URL valida.`;
-  }
-
-  const hexColorMatch = message.match(/^([A-Za-z0-9_]+) must be a hexadecimal color$/i);
-  if (hexColorMatch) {
-    return `${humanizeFieldName(hexColorMatch[1])} deve ser uma cor hexadecimal valida.`;
-  }
-
-  const dateMatch = message.match(
-    /^([A-Za-z0-9_]+) must be a valid ISO 8601 date string$/i
-  );
-  if (dateMatch) {
-    return `${humanizeFieldName(dateMatch[1])} deve ser uma data valida.`;
-  }
-
-  const enumMatch = message.match(
-    /^([A-Za-z0-9_]+) must be one of the following values: (.+)$/i
-  );
-  if (enumMatch) {
-    return `${humanizeFieldName(enumMatch[1])} deve ser um dos seguintes valores: ${enumMatch[2]}.`;
-  }
-
-  const arrayMatch = message.match(/^([A-Za-z0-9_]+) must be an array$/i);
-  if (arrayMatch) {
-    return `${humanizeFieldName(arrayMatch[1])} deve ser uma lista valida.`;
-  }
-
-  return normalizedMessage
-    .replace(/\bBad Request\b/gi, "Requisicao invalida")
-    .replace(/\bUnauthorized\b/gi, "Nao autorizado")
-    .replace(/\bForbidden\b/gi, "Acesso negado")
-    .replace(/\bNot Found\b/gi, "Nao encontrado")
-    .replace(/\bConflict\b/gi, "Conflito")
-    .replace(/\bInternal Server Error\b/gi, "Erro interno do servidor");
-}
-
-function fallbackStatusMessage(status: number) {
-  switch (status) {
-    case 400:
-      return "Requisicao invalida.";
-    case 401:
-      return "Sua sessao nao esta autorizada.";
-    case 403:
-      return "Voce nao tem permissao para realizar esta acao.";
-    case 404:
-      return "O recurso solicitado nao foi encontrado.";
-    case 409:
-      return "Ja existe um registro com esses dados.";
-    case 422:
-      return "Os dados enviados sao invalidos.";
-    case 500:
-      return "Erro interno do servidor.";
-    case 503:
-      return "O servico esta temporariamente indisponivel.";
-    default:
-      return "Nao foi possivel concluir a requisicao.";
-  }
-}
-
-function extractErrorMessage(body: unknown, status?: number) {
-  if (
-    body &&
-    typeof body === "object" &&
-    "message" in body &&
-    typeof body.message === "string"
-  ) {
-    return translateErrorText(body.message);
-  }
-
-  if (
-    body &&
-    typeof body === "object" &&
-    "message" in body &&
-    Array.isArray(body.message)
-  ) {
-    const messages = body.message.filter(
-      (value): value is string => typeof value === "string" && value.trim().length > 0
-    );
-
-    if (messages.length) {
-      return messages.map(translateErrorText).join(" ");
+  if (recentGlobalErrors.size > 40) {
+    for (const [entryMessage, shownAt] of recentGlobalErrors.entries()) {
+      if (now - shownAt >= GLOBAL_SERVER_ERROR_THROTTLE_MS * 3) {
+        recentGlobalErrors.delete(entryMessage);
+      }
     }
   }
 
+  return true;
+}
+
+function logApiErrorInDevelopment(error: unknown, metadata?: RequestMetadata) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  console.error("[api]", {
+    error,
+    path: metadata?.path
+  });
+}
+
+function queuePendingToastForNextLoad(message: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.sessionStorage.setItem(
+    PENDING_TOAST_STORAGE_KEY,
+    JSON.stringify({
+      tone: "error",
+      title: message
+    })
+  );
+}
+
+function handleApiErrorGlobally(error: unknown, metadata: RequestMetadata = {}) {
+  if (!isApiHttpError(error)) {
+    logApiErrorInDevelopment(error, metadata);
+    return;
+  }
+
+  const message = parseApiError(error);
+  logApiErrorInDevelopment(error, metadata);
+
   if (
-    body &&
-    typeof body === "object" &&
-    "error" in body &&
-    typeof body.error === "string"
+    error.status === 401 &&
+    metadata.authenticated &&
+    !metadata.skipUnauthorizedRedirect &&
+    typeof window !== "undefined"
   ) {
-    return translateErrorText(body.error);
+    markApiErrorAsHandled(error);
+    clearStoredSession();
+    queuePendingToastForNextLoad(message);
+
+    if (window.location.pathname !== "/login") {
+      window.location.assign("/login");
+    }
+
+    return;
   }
 
-  if (typeof status === "number") {
-    return fallbackStatusMessage(status);
-  }
+  if ((error.status ?? 0) >= 500 && !metadata.skipGlobalErrorToast) {
+    if (shouldEmitGlobalServerErrorToast(message)) {
+      toastError(message);
+    }
 
-  return "Nao foi possivel concluir a requisicao.";
+    markApiErrorAsHandled(error);
+  }
 }
 
-function translateFetchError(error: unknown) {
-  if (error instanceof Error) {
-    return translateErrorText(error.message);
-  }
-
-  return "Nao foi possivel concluir a requisicao.";
-}
-
-async function readJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
+async function readJson<T>(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  metadata: RequestMetadata = {}
+): Promise<T> {
   let response: Response;
 
   try {
@@ -309,14 +143,25 @@ async function readJson<T>(input: RequestInfo | URL, init?: RequestInit): Promis
       ...init
     });
   } catch (error) {
-    throw new Error(translateFetchError(error));
+    const apiError = createApiHttpError({
+      body: error instanceof Error ? error.message : null,
+      isNetworkError: true,
+      path: metadata.path
+    });
+    handleApiErrorGlobally(apiError, metadata);
+    throw apiError;
   }
 
   const body = await response.json().catch(() => null);
 
   if (!response.ok) {
-    const message = extractErrorMessage(body, response.status);
-    throw new Error(message);
+    const apiError = createApiHttpError({
+      status: response.status,
+      body,
+      path: metadata.path
+    });
+    handleApiErrorGlobally(apiError, metadata);
+    throw apiError;
   }
 
   return body as T;
@@ -1472,6 +1317,11 @@ export type FiscalDocumentRecord = {
   }>;
 };
 
+export type FiscalReceiptPrintLink = {
+  path: string;
+  expiresAt: string;
+};
+
 export type ListFiscalDocumentsFilters = {
   search?: string;
   documentType?: "NFCE" | "NFE" | "RECEIPT" | "SERVICE_RECEIPT";
@@ -1681,6 +1531,23 @@ export type ServiceOrderStatusName =
   | "REJECTED";
 
 export type ServiceOrderItemTypeName = "PART" | "SERVICE" | "MANUAL_ITEM";
+
+export type ServiceOrderQuoteStatusName = "PENDING" | "APPROVED" | "REJECTED";
+
+export type ServiceOrderAttachment = {
+  id: string;
+  fileName: string;
+  fileType: string;
+  url: string;
+  createdAt: string;
+};
+
+export type ServiceOrderReceiptFormat = "a4" | "thermal";
+
+export type ServiceOrderReceiptPrintLink = {
+  path: string;
+  expiresAt: string;
+};
 
 export type ServiceOrderListItem = {
   id: string;
@@ -2032,6 +1899,51 @@ export type ConsumeServiceOrderItemPayload = {
   locationId?: string;
 };
 
+export type ServiceOrderQuote = {
+  id: string;
+  serviceOrderId: string;
+  subtotal: number;
+  discountAmount: number;
+  total: number;
+  status: ServiceOrderQuoteStatusName;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: Array<{
+    id: string;
+    quoteId: string;
+    productId: string | null;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+    itemType: ServiceOrderItemTypeName;
+    createdAt: string;
+    updatedAt: string;
+    product: {
+      id: string;
+      name: string;
+      internalCode: string;
+      isService: boolean;
+    } | null;
+  }>;
+};
+
+export type CreateServiceOrderQuotePayload = {
+  notes?: string;
+  items: Array<{
+    itemType: ServiceOrderItemTypeName;
+    productId?: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+  }>;
+};
+
+export type UpdateServiceOrderQuotePayload = Partial<CreateServiceOrderQuotePayload>;
+
+type UploadProgressCallback = (progress: number) => void;
+
 export type ListPurchaseOrdersFilters = {
   search?: string;
   status?: PurchaseOrderStatusName;
@@ -2144,7 +2056,16 @@ export type DashboardInsightFilters = {
   take?: number;
 };
 
-export type SalesReportFilters = ListSalesFilters;
+export type SalesReportFilters = {
+  search?: string;
+  customerId?: string;
+  userId?: string;
+  status?: "COMPLETED" | "CANCELED" | "REFUNDED";
+  paymentMethod?: PaymentMethodName;
+  startDate?: string;
+  endDate?: string;
+  take?: number;
+};
 
 export type SalesReport = {
   generatedAt: string;
@@ -2155,6 +2076,7 @@ export type SalesReport = {
     totalDiscount: number;
     totalProfit: number;
     totalItemsSold: number;
+    totalCanceled: number;
     averageTicket: number;
   };
   charts: {
@@ -2187,6 +2109,7 @@ export type SalesReport = {
     estimatedProfit: number;
     itemCount: number;
     paymentCount: number;
+    paymentMethods: PaymentMethodName[];
     customer: {
       id: string;
       name: string;
@@ -2239,6 +2162,8 @@ export type StockReport = {
     active: boolean;
     brand: string | null;
     model: string | null;
+    costPrice: number;
+    salePrice: number;
     stockMin: number;
     totalStock: number;
     lowStock: boolean;
@@ -2307,6 +2232,11 @@ export type CashReport = {
       id: string;
       name: string;
     };
+    openedByUser: {
+      id: string;
+      name: string;
+      email: string;
+    } | null;
     salesCount: number;
     salesTotal: number;
     movementCount: number;
@@ -2383,6 +2313,92 @@ export type CustomerReport = {
     openReceivables: number;
     overdueReceivables: number;
   }>;
+};
+
+export type CommissionPeriodFilters = {
+  month?: number;
+  year?: number;
+};
+
+export type CommissionRecord = {
+  commissionId: string;
+  commissionType: string;
+  commissionValue: number;
+  createdAt: string;
+  sale: {
+    id: string;
+    saleNumber: string;
+    total: number;
+    completedAt: string;
+    status: "COMPLETED" | "CANCELED" | "REFUNDED";
+  };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+};
+
+export type MyCommissionSummary = {
+  generatedAt: string;
+  timeZone: string;
+  periodMonth: number;
+  periodYear: number;
+  summary: {
+    totalCommission: number;
+    totalSold: number;
+    targetAmount: number;
+    achievementPercent: number;
+  };
+  rows: CommissionRecord[];
+};
+
+export type TeamCommissionSummary = {
+  generatedAt: string;
+  timeZone: string;
+  periodMonth: number;
+  periodYear: number;
+  rows: Array<{
+    userId: string;
+    name: string;
+    saleCount: number;
+    totalSold: number;
+    totalCommission: number;
+    targetId: string | null;
+    targetAmount: number;
+    achievementPercent: number;
+  }>;
+};
+
+export type CommissionTargetsResponse = {
+  generatedAt: string;
+  timeZone: string;
+  periodMonth: number;
+  periodYear: number;
+  rows: Array<{
+    targetId: string | null;
+    userId: string;
+    name: string;
+    email: string;
+    targetAmount: number;
+    periodMonth: number;
+    periodYear: number;
+    createdAt: string | null;
+  }>;
+};
+
+export type CreateCommissionPayload = {
+  userId: string;
+  saleId: string;
+  commissionType: string;
+  commissionValue: number;
+};
+
+export type UpsertCommissionTargetPayload = {
+  userId: string;
+  month: number;
+  year: number;
+  targetAmount: number;
 };
 
 function buildListQuery(filters: ListEntitiesFilters) {
@@ -2658,6 +2674,25 @@ function buildServiceOrdersQuery(filters: ListServiceOrdersFilters) {
   return query ? `?${query}` : "";
 }
 
+function serializeServiceOrderQuotePayload(
+  payload: UpdateServiceOrderQuotePayload
+) {
+  return {
+    ...(payload.notes !== undefined ? { notes: payload.notes } : {}),
+    ...(payload.items
+      ? {
+          items: payload.items.map((item) => ({
+            description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unitPrice,
+            item_type: item.itemType,
+            ...(item.productId ? { product_id: item.productId } : {})
+          }))
+        }
+      : {})
+  };
+}
+
 function buildPurchaseOrdersQuery(filters: ListPurchaseOrdersFilters) {
   const params = new URLSearchParams();
 
@@ -2822,6 +2857,10 @@ function buildSalesReportQuery(
     params.set("status", filters.status);
   }
 
+  if (filters.paymentMethod) {
+    params.set("paymentMethod", filters.paymentMethod);
+  }
+
   if (filters.startDate) {
     params.set("startDate", filters.startDate);
   }
@@ -2836,6 +2875,45 @@ function buildSalesReportQuery(
 
   if (filters.format) {
     params.set("format", filters.format);
+  }
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function buildSalesReportExportQuery(filters: SalesReportFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.search?.trim()) {
+    params.set("search", filters.search.trim());
+  }
+
+  if (filters.customerId) {
+    params.set("customerId", filters.customerId);
+  }
+
+  if (filters.userId) {
+    params.set("userId", filters.userId);
+  }
+
+  if (filters.status) {
+    params.set("status", filters.status);
+  }
+
+  if (filters.paymentMethod) {
+    params.set("paymentMethod", filters.paymentMethod);
+  }
+
+  if (filters.startDate) {
+    params.set("start", filters.startDate);
+  }
+
+  if (filters.endDate) {
+    params.set("end", filters.endDate);
+  }
+
+  if (filters.take !== undefined) {
+    params.set("take", String(filters.take));
   }
 
   const query = params.toString();
@@ -2924,6 +3002,41 @@ function buildCashReportQuery(
   return query ? `?${query}` : "";
 }
 
+function buildCashReportExportQuery(filters: CashReportFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.cashTerminalId) {
+    params.set("cashTerminalId", filters.cashTerminalId);
+  }
+
+  if (filters.sessionStatus) {
+    params.set("sessionStatus", filters.sessionStatus);
+  }
+
+  if (filters.movementType) {
+    params.set("movementType", filters.movementType);
+  }
+
+  if (filters.paymentMethod) {
+    params.set("paymentMethod", filters.paymentMethod);
+  }
+
+  if (filters.startDate) {
+    params.set("start", filters.startDate);
+  }
+
+  if (filters.endDate) {
+    params.set("end", filters.endDate);
+  }
+
+  if (filters.take !== undefined) {
+    params.set("take", String(filters.take));
+  }
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 function buildCustomerReportQuery(
   filters: CustomerReportFilters & { format?: "json" | "csv" }
 ) {
@@ -2965,9 +3078,60 @@ function buildCustomerReportQuery(
   return query ? `?${query}` : "";
 }
 
+function buildCommissionPeriodQuery(filters: CommissionPeriodFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.month !== undefined) {
+    params.set("month", String(filters.month));
+  }
+
+  if (filters.year !== undefined) {
+    params.set("year", String(filters.year));
+  }
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function buildCustomerReportExportQuery(filters: CustomerReportFilters) {
+  const params = new URLSearchParams();
+
+  if (filters.search?.trim()) {
+    params.set("search", filters.search.trim());
+  }
+
+  if (filters.active !== undefined) {
+    params.set("active", String(filters.active));
+  }
+
+  if (filters.city?.trim()) {
+    params.set("city", filters.city.trim());
+  }
+
+  if (filters.state?.trim()) {
+    params.set("state", filters.state.trim());
+  }
+
+  if (filters.startDate) {
+    params.set("start", filters.startDate);
+  }
+
+  if (filters.endDate) {
+    params.set("end", filters.endDate);
+  }
+
+  if (filters.take !== undefined) {
+    params.set("take", String(filters.take));
+  }
+
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 async function readAuthenticatedJson<T>(
   path: string,
-  { token, ...init }: AuthenticatedJsonOptions
+  { token, ...init }: AuthenticatedJsonOptions,
+  metadata: Omit<RequestMetadata, "path" | "authenticated"> = {}
 ): Promise<T> {
   return readJson<T>(`${API_URL}${path}`, {
     ...init,
@@ -2975,6 +3139,10 @@ async function readAuthenticatedJson<T>(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init.headers ?? {})
     }
+  }, {
+    ...metadata,
+    path,
+    authenticated: Boolean(token)
   });
 }
 
@@ -2994,7 +3162,8 @@ function parseDispositionFileName(disposition: string | null) {
 
 async function readAuthenticatedFile(
   path: string,
-  { token, ...init }: AuthenticatedJsonOptions
+  { token, ...init }: AuthenticatedJsonOptions,
+  metadata: Omit<RequestMetadata, "path" | "authenticated"> = {}
 ): Promise<DownloadedFile> {
   let response: Response;
 
@@ -3007,7 +3176,17 @@ async function readAuthenticatedFile(
       }
     });
   } catch (error) {
-    throw new Error(translateFetchError(error));
+    const apiError = createApiHttpError({
+      body: error instanceof Error ? error.message : null,
+      isNetworkError: true,
+      path
+    });
+    handleApiErrorGlobally(apiError, {
+      ...metadata,
+      path,
+      authenticated: Boolean(token)
+    });
+    throw apiError;
   }
 
   if (!response.ok) {
@@ -3015,11 +3194,17 @@ async function readAuthenticatedFile(
     const body = contentType.includes("application/json")
       ? await response.json().catch(() => null)
       : await response.text().catch(() => null);
-    const message =
-      typeof body === "string" && body.trim().length
-        ? translateErrorText(body)
-        : extractErrorMessage(body, response.status);
-    throw new Error(message);
+    const apiError = createApiHttpError({
+      status: response.status,
+      body,
+      path
+    });
+    handleApiErrorGlobally(apiError, {
+      ...metadata,
+      path,
+      authenticated: Boolean(token)
+    });
+    throw apiError;
   }
 
   return {
@@ -3030,7 +3215,9 @@ async function readAuthenticatedFile(
 }
 
 export async function getHealth(): Promise<HealthResponse> {
-  const payload = await readJson<unknown>(`${API_URL}/health`);
+  const payload = await readJson<unknown>(`${API_URL}/health`, undefined, {
+    path: "/health"
+  });
   return healthResponseSchema.parse(payload);
 }
 
@@ -3171,6 +3358,9 @@ export async function login(payload: LoginInput): Promise<AuthSession> {
   const response = await readJson<unknown>(`${API_URL}/auth/login`, {
     method: "POST",
     body: JSON.stringify(payload)
+  }, {
+    path: "/auth/login",
+    skipUnauthorizedRedirect: true
   });
 
   return authSessionSchema.parse(response);
@@ -3182,6 +3372,9 @@ export async function refreshSession(
   const response = await readJson<unknown>(`${API_URL}/auth/refresh`, {
     method: "POST",
     body: JSON.stringify(payload)
+  }, {
+    path: "/auth/refresh",
+    skipUnauthorizedRedirect: true
   });
 
   return authSessionSchema.parse(response);
@@ -3325,6 +3518,13 @@ export async function listCustomers(
     `/customers${buildListQuery(filters)}`,
     { token }
   );
+}
+
+export async function getCustomer(
+  token: string | undefined | null,
+  id: string
+): Promise<Customer> {
+  return readAuthenticatedJson<Customer>(`/customers/${id}`, { token });
 }
 
 export async function createCustomer(
@@ -3710,6 +3910,20 @@ export async function getServiceOrder(
   return readAuthenticatedJson<ServiceOrder>(`/service-orders/${id}`, { token });
 }
 
+export async function createServiceOrderReceiptPrintLink(
+  token: string | undefined | null,
+  id: string,
+  format: ServiceOrderReceiptFormat
+): Promise<ServiceOrderReceiptPrintLink> {
+  return readAuthenticatedJson<ServiceOrderReceiptPrintLink>(
+    `/service-orders/${id}/receipt/print-link?format=${format}`,
+    {
+      token,
+      method: "POST"
+    }
+  );
+}
+
 export async function createServiceOrder(
   token: string | undefined | null,
   payload: CreateServiceOrderPayload
@@ -3757,6 +3971,113 @@ export async function consumeServiceOrderItem(
       token,
       method: "POST",
       body: JSON.stringify(payload)
+    }
+  );
+}
+
+export async function listServiceOrderQuotes(
+  token: string | undefined | null,
+  serviceOrderId: string
+): Promise<ServiceOrderQuote[]> {
+  return readAuthenticatedJson<ServiceOrderQuote[]>(
+    `/service-orders/${serviceOrderId}/quotes`,
+    { token }
+  );
+}
+
+export async function createServiceOrderQuote(
+  token: string | undefined | null,
+  serviceOrderId: string,
+  payload: CreateServiceOrderQuotePayload
+): Promise<ServiceOrderQuote> {
+  return readAuthenticatedJson<ServiceOrderQuote>(
+    `/service-orders/${serviceOrderId}/quotes`,
+    {
+      token,
+      method: "POST",
+      body: JSON.stringify(serializeServiceOrderQuotePayload(payload))
+    }
+  );
+}
+
+export async function updateServiceOrderQuote(
+  token: string | undefined | null,
+  serviceOrderId: string,
+  quoteId: string,
+  payload: UpdateServiceOrderQuotePayload
+): Promise<ServiceOrderQuote> {
+  return readAuthenticatedJson<ServiceOrderQuote>(
+    `/service-orders/${serviceOrderId}/quotes/${quoteId}`,
+    {
+      token,
+      method: "PATCH",
+      body: JSON.stringify(serializeServiceOrderQuotePayload(payload))
+    }
+  );
+}
+
+export async function approveServiceOrderQuote(
+  token: string | undefined | null,
+  serviceOrderId: string,
+  quoteId: string
+): Promise<ServiceOrderQuote> {
+  return readAuthenticatedJson<ServiceOrderQuote>(
+    `/service-orders/${serviceOrderId}/quotes/${quoteId}/approve`,
+    {
+      token,
+      method: "POST"
+    }
+  );
+}
+
+export async function rejectServiceOrderQuote(
+  token: string | undefined | null,
+  serviceOrderId: string,
+  quoteId: string
+): Promise<ServiceOrderQuote> {
+  return readAuthenticatedJson<ServiceOrderQuote>(
+    `/service-orders/${serviceOrderId}/quotes/${quoteId}/reject`,
+    {
+      token,
+      method: "POST"
+    }
+  );
+}
+
+export async function listServiceOrderAttachments(
+  token: string | undefined | null,
+  serviceOrderId: string
+): Promise<ServiceOrderAttachment[]> {
+  return readAuthenticatedJson<ServiceOrderAttachment[]>(
+    `/service-orders/${serviceOrderId}/attachments`,
+    { token }
+  );
+}
+
+export async function uploadServiceOrderAttachment(
+  token: string | undefined | null,
+  serviceOrderId: string,
+  file: File,
+  onProgress?: UploadProgressCallback
+): Promise<ServiceOrderAttachment> {
+  return uploadAuthenticatedFile<ServiceOrderAttachment>(
+    `/service-orders/${serviceOrderId}/attachments`,
+    token,
+    file,
+    onProgress
+  );
+}
+
+export async function deleteServiceOrderAttachment(
+  token: string | undefined | null,
+  serviceOrderId: string,
+  attachmentId: string
+): Promise<{ success: boolean }> {
+  return readAuthenticatedJson<{ success: boolean }>(
+    `/service-orders/${serviceOrderId}/attachments/${attachmentId}`,
+    {
+      token,
+      method: "DELETE"
     }
   );
 }
@@ -3858,30 +4179,7 @@ export async function uploadProductImage(
   id: string,
   file: File
 ): Promise<Product> {
-  const formData = new FormData();
-  formData.set("file", file);
-
-  let response: Response;
-
-  try {
-    response = await fetch(`${API_URL}/products/${id}/image`, {
-      method: "POST",
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: formData
-    });
-  } catch (error) {
-    throw new Error(translateFetchError(error));
-  }
-
-  const body = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(body, response.status));
-  }
-
-  return body as Product;
+  return uploadAuthenticatedFile<Product>(`/products/${id}/image`, token, file);
 }
 
 export async function updateProductActive(
@@ -3906,6 +4204,81 @@ export function resolveApiAssetUrl(path?: string | null) {
   }
 
   return `${API_ORIGIN}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+async function uploadAuthenticatedFile<TResponse>(
+  path: string,
+  token: string | undefined | null,
+  file: File,
+  onProgress?: UploadProgressCallback,
+  metadata: Omit<RequestMetadata, "path" | "authenticated"> = {}
+): Promise<TResponse> {
+  const formData = new FormData();
+  formData.set("file", file);
+
+  return new Promise<TResponse>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+
+    request.open("POST", `${API_URL}${path}`);
+
+    if (token) {
+      request.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+
+    request.upload.onprogress = (event) => {
+      if (!onProgress || !event.lengthComputable) {
+        return;
+      }
+
+      onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+
+    request.onerror = () => {
+      const apiError = createApiHttpError({
+        body: "Sem conexao com o servidor",
+        isNetworkError: true,
+        path
+      });
+      handleApiErrorGlobally(apiError, {
+        ...metadata,
+        path,
+        authenticated: Boolean(token)
+      });
+      reject(apiError);
+    };
+
+    request.onload = () => {
+      let body: unknown = null;
+
+      if (request.responseText) {
+        try {
+          body = JSON.parse(request.responseText);
+        } catch {
+          body = null;
+        }
+      }
+
+      if (request.status < 200 || request.status >= 300) {
+        const apiError = createApiHttpError({
+          status: request.status,
+          body: body as ApiErrorBody,
+          path
+        });
+        handleApiErrorGlobally(apiError, {
+          ...metadata,
+          path,
+          authenticated: Boolean(token)
+        });
+        reject(apiError);
+        return;
+      }
+
+      onProgress?.(100);
+      resolve(body as TResponse);
+    };
+
+    request.send(formData);
+  });
 }
 
 export async function searchPdvProducts(
@@ -4017,6 +4390,8 @@ export async function pairScannerSession(
   return readJson<PairScannerSessionResult>(`${API_URL}/scanner-sessions/pair`, {
     method: "POST",
     body: JSON.stringify(payload)
+  }, {
+    path: "/scanner-sessions/pair"
   });
 }
 
@@ -4062,6 +4437,19 @@ export async function issueInternalReceipt(
     method: "POST",
     body: JSON.stringify({ saleId })
   });
+}
+
+export async function createFiscalReceiptPrintLink(
+  token: string | undefined | null,
+  saleId: string
+): Promise<FiscalReceiptPrintLink> {
+  return readAuthenticatedJson<FiscalReceiptPrintLink>(
+    `/fiscal/receipt/${saleId}/print-link`,
+    {
+      token,
+      method: "POST"
+    }
+  );
 }
 
 export async function cancelFiscalDocument(
@@ -4210,7 +4598,7 @@ export async function downloadSalesReportCsv(
   token: string | undefined | null,
   filters: SalesReportFilters
 ): Promise<DownloadedFile> {
-  return readAuthenticatedFile(`/reports/sales${buildSalesReportQuery({ ...filters, format: "csv" })}`, {
+  return readAuthenticatedFile(`/reports/export/sales${buildSalesReportExportQuery(filters)}`, {
     token
   });
 }
@@ -4228,7 +4616,7 @@ export async function downloadStockReportCsv(
   token: string | undefined | null,
   filters: StockReportFilters
 ): Promise<DownloadedFile> {
-  return readAuthenticatedFile(`/reports/stock${buildStockReportQuery({ ...filters, format: "csv" })}`, {
+  return readAuthenticatedFile(`/reports/export/stock${buildStockReportQuery(filters)}`, {
     token
   });
 }
@@ -4246,7 +4634,7 @@ export async function downloadCashReportCsv(
   token: string | undefined | null,
   filters: CashReportFilters
 ): Promise<DownloadedFile> {
-  return readAuthenticatedFile(`/reports/cash${buildCashReportQuery({ ...filters, format: "csv" })}`, {
+  return readAuthenticatedFile(`/reports/export/cash${buildCashReportExportQuery(filters)}`, {
     token
   });
 }
@@ -4264,7 +4652,65 @@ export async function downloadCustomerReportCsv(
   token: string | undefined | null,
   filters: CustomerReportFilters
 ): Promise<DownloadedFile> {
-  return readAuthenticatedFile(`/reports/customers${buildCustomerReportQuery({ ...filters, format: "csv" })}`, {
-    token
+  return readAuthenticatedFile(
+    `/reports/export/customers${buildCustomerReportExportQuery(filters)}`,
+    {
+      token
+    }
+  );
+}
+
+export async function getMyCommissionSummary(
+  token: string | undefined | null,
+  filters: CommissionPeriodFilters
+): Promise<MyCommissionSummary> {
+  return readAuthenticatedJson<MyCommissionSummary>(
+    `/commissions/my-summary${buildCommissionPeriodQuery(filters)}`,
+    { token }
+  );
+}
+
+export async function getTeamCommissionSummary(
+  token: string | undefined | null,
+  filters: CommissionPeriodFilters
+): Promise<TeamCommissionSummary> {
+  return readAuthenticatedJson<TeamCommissionSummary>(
+    `/commissions/team-summary${buildCommissionPeriodQuery(filters)}`,
+    { token }
+  );
+}
+
+export async function createCommission(
+  token: string | undefined | null,
+  payload: CreateCommissionPayload
+): Promise<CommissionRecord> {
+  return readAuthenticatedJson<CommissionRecord>("/commissions", {
+    token,
+    method: "POST",
+    body: JSON.stringify(payload)
   });
+}
+
+export async function listCommissionTargets(
+  token: string | undefined | null,
+  filters: CommissionPeriodFilters
+): Promise<CommissionTargetsResponse> {
+  return readAuthenticatedJson<CommissionTargetsResponse>(
+    `/commissions/targets${buildCommissionPeriodQuery(filters)}`,
+    { token }
+  );
+}
+
+export async function upsertCommissionTarget(
+  token: string | undefined | null,
+  payload: UpsertCommissionTargetPayload
+): Promise<CommissionTargetsResponse["rows"][number]> {
+  return readAuthenticatedJson<CommissionTargetsResponse["rows"][number]>(
+    "/commissions/targets",
+    {
+      token,
+      method: "POST",
+      body: JSON.stringify(payload)
+    }
+  );
 }

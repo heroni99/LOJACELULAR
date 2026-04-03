@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { PageHeader } from "@/components/app/page-header";
+import { PageHeader } from "@/components/ui/page-header";
 import { StoreSettingsPanel } from "@/features/admin/store-settings-panel";
 import { getCurrentStore } from "@/lib/api";
 import { useAppSession } from "@/app/session-context";
@@ -14,8 +14,7 @@ export function StoreSettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        description="Identidade visual, nome institucional, hero e cores da loja ativa."
-        eyebrow="Administracao"
+        subtitle="Identidade visual, nome institucional, hero e cores da loja ativa."
         title="Configuracao da loja"
       />
       <StoreSettingsPanel

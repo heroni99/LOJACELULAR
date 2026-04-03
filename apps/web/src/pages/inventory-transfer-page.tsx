@@ -1,15 +1,14 @@
 import { useMemo, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRightLeft, LoaderCircle } from "lucide-react";
+import { ArrowRightLeft } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Link } from "react-router-dom";
-import { PageHeader } from "@/components/app/page-header";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
 import { useAppSession } from "@/app/session-context";
 import { InventoryFeedback, InventoryFieldError, getInventoryErrorMessage, inventorySelectClassName, inventoryTextareaClassName } from "@/features/inventory/inventory-ui";
 import {
@@ -18,9 +17,11 @@ import {
   listProducts,
   listStockLocations
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { formatCompactNumber } from "@/lib/format";
 import { applyZodErrors, readFormString } from "@/lib/form-helpers";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 
 const inventoryTransferSchema = z
   .object({
@@ -108,10 +109,9 @@ export function InventoryTransferPage() {
         notes: emptyToUndefined(values.notes)
       }),
     onSuccess: async (result) => {
-      setFeedback({
-        tone: "success",
-        text: `Transferencia registrada. Origem agora em ${result.fromCurrentQuantity} unidade(s) e destino em ${result.toCurrentQuantity}.`
-      });
+      success(
+        `Transferencia registrada. Origem agora em ${result.fromCurrentQuantity} unidade(s) e destino em ${result.toCurrentQuantity}.`
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["inventory"] }),
         queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
@@ -126,26 +126,15 @@ export function InventoryTransferPage() {
       });
     },
     onError: (error: Error) => {
-      setFeedback({
-        tone: "error",
-        text: error.message
-      });
+      toastError(parseApiError(error));
     }
   });
 
   return (
     <div className="space-y-6">
       <PageHeader
-        actions={
-          <Button asChild variant="outline">
-            <Link to="/inventory">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar ao estoque
-            </Link>
-          </Button>
-        }
-        description="Transferencia real entre locais: baixa a origem, soma no destino e registra dois movimentos vinculados."
-        eyebrow="Estoque"
+        backHref="/inventory"
+        subtitle="Transferencia real entre locais: baixa a origem, soma no destino e registra dois movimentos vinculados."
         title="Transferencia entre locais"
       />
 
@@ -303,19 +292,15 @@ export function InventoryTransferPage() {
             {feedback ? <InventoryFeedback {...feedback} /> : null}
 
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button className="flex-1" disabled={saveMutation.isPending} type="submit">
-                {saveMutation.isPending ? (
-                  <>
-                    <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                    Gravando transferencia...
-                  </>
-                ) : (
-                  <>
-                    <ArrowRightLeft className="mr-2 h-4 w-4" />
-                    Registrar transferencia
-                  </>
-                )}
-              </Button>
+              <LoadingButton
+                className="flex-1"
+                isLoading={saveMutation.isPending}
+                loadingText="Gravando transferencia..."
+                type="submit"
+              >
+                <ArrowRightLeft className="mr-2 h-4 w-4" />
+                Registrar transferencia
+              </LoadingButton>
             </div>
           </form>
         </CardContent>

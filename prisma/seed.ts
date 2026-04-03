@@ -72,6 +72,8 @@ const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     "sale-returns.read",
     "sale-returns.create",
     "financial.read",
+    "commissions.read",
+    "commissions.manage",
     "reports.read",
     "audit.read",
     "fiscal.read",
@@ -93,6 +95,7 @@ const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     "sale-returns.read",
     "sale-returns.create",
     "reports.read",
+    "commissions.read",
     "fiscal.read",
     "fiscal.issue"
   ],
@@ -104,6 +107,7 @@ const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     "products.read",
     "sales.read",
     "sales.checkout",
+    "commissions.read",
     "reports.read",
     "fiscal.read",
     "fiscal.issue"
@@ -127,6 +131,7 @@ const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     "purchase-orders.create",
     "purchase-orders.update",
     "purchase-orders.receive",
+    "commissions.read",
     "reports.read"
   ],
   TECHNICIAN: [
@@ -135,6 +140,7 @@ const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
     "customers.create",
     "customers.update",
     "products.read",
+    "commissions.read",
     "service-orders.read",
     "service-orders.create",
     "service-orders.update"

@@ -1,5 +1,6 @@
 const { createRequire } = require("node:module");
 const { resolve } = require("node:path");
+const { randomUUID } = require("node:crypto");
 
 require(resolve(__dirname, "../apps/api/dist/common/load-env.js"));
 
@@ -111,12 +112,14 @@ async function main() {
   let createdTerminal = null;
   let createdSession = null;
   let createdSale = null;
+  let createdServiceSale = null;
   let createdFiscalDocument = null;
   let createdServiceOrder = null;
   let createdPurchaseOrder = null;
   let createdSaleReturn = null;
   let createdPayable = null;
   let createdReceivable = null;
+  let serviceCatalogItem = null;
 
   try {
     const loginSession = await auth.login(
@@ -749,7 +752,8 @@ async function main() {
       },
       {
         ...auditContext,
-        userId: loginSession.user.id
+        userId: loginSession.user.id,
+        storeId: originalStore.id
       }
     );
     report.checks.push({
@@ -784,13 +788,76 @@ async function main() {
       passed: sourceBalanceAfterSale?.quantity === 1
     });
 
-    const listedSales = await sales.findAll({
+    const listedSales = await sales.findAll(originalStore.id, {
       search: createdSale.saleNumber,
       take: 20
     });
     report.checks.push({
       name: "sales.list",
       passed: listedSales.some((sale) => sale.id === createdSale.id)
+    });
+    const saleDetail = await sales.findById(createdSale.id, originalStore.id);
+    report.checks.push({
+      name: "sales.detail",
+      passed:
+        saleDetail.id === createdSale.id &&
+        saleDetail.items.length === 2 &&
+        saleDetail.payments.length === 1
+    });
+    const hiddenStoreSales = await sales.findAll(randomUUID(), {
+      search: createdSale.saleNumber,
+      take: 20
+    });
+    report.checks.push({
+      name: "sales.list.scoped_by_store",
+      passed: hiddenStoreSales.every((sale) => sale.id !== createdSale.id)
+    });
+    let blockedSaleDetailByStore = false;
+    try {
+      await sales.findById(createdSale.id, randomUUID());
+    } catch (error) {
+      blockedSaleDetailByStore = /Venda nao encontrada/i.test(error.message);
+    }
+    report.checks.push({
+      name: "sales.detail.scoped_by_store",
+      passed: blockedSaleDetailByStore
+    });
+    let blockedCheckoutByStore = false;
+    try {
+      await sales.checkout(
+        {
+          customerId: customer.id,
+          cashSessionId: createdSession.id,
+          items: [
+            {
+              productId: product.id,
+              stockLocationId: secondaryLocation.id,
+              quantity: 1,
+              unitPrice: 2900,
+              discountAmount: 0
+            }
+          ],
+          payments: [
+            {
+              method: "PIX",
+              amount: 2900
+            }
+          ],
+          discountAmount: 0,
+          notes: "smoke-sale-wrong-store"
+        },
+        {
+          ...auditContext,
+          userId: loginSession.user.id,
+          storeId: randomUUID()
+        }
+      );
+    } catch (error) {
+      blockedCheckoutByStore = /nao pertence a loja atual/i.test(error.message);
+    }
+    report.checks.push({
+      name: "sales.checkout.scoped_by_store",
+      passed: blockedCheckoutByStore
     });
 
     createdFiscalDocument = await fiscal.issueInternalReceipt(
@@ -893,7 +960,7 @@ async function main() {
         returnedUnit?.currentLocationId === defaultLocation.id
     });
 
-    const serviceCatalogItem = await prisma.product.findFirst({
+    serviceCatalogItem = await prisma.product.findFirst({
       where: {
         isService: true,
         active: true
@@ -903,6 +970,142 @@ async function main() {
     if (!serviceCatalogItem) {
       throw new Error("Nenhum servico seedado encontrado para o smoke.");
     }
+
+    createdServiceSale = await sales.checkout(
+      {
+        customerId: customer.id,
+        cashSessionId: createdSession.id,
+        items: [
+          {
+            productId: serviceCatalogItem.id,
+            quantity: 1,
+            unitPrice: serviceCatalogItem.salePrice,
+            discountAmount: 0
+          }
+        ],
+        payments: [
+          {
+            method: "PIX",
+            amount: serviceCatalogItem.salePrice
+          }
+        ],
+        discountAmount: 0,
+        notes: "smoke-service-sale"
+      },
+      {
+        ...auditContext,
+        userId: loginSession.user.id,
+        storeId: originalStore.id
+      }
+    );
+    report.checks.push({
+      name: "sales.checkout.service_item",
+      passed:
+        Boolean(createdServiceSale?.id) &&
+        createdServiceSale.items.length === 1 &&
+        createdServiceSale.items[0]?.product.isService === true
+    });
+    const serviceSaleStockMovements = await prisma.stockMovement.count({
+      where: {
+        referenceType: "sale",
+        referenceId: createdServiceSale.id
+      }
+    });
+    const serviceSaleCashMovements = await prisma.cashMovement.count({
+      where: {
+        referenceType: "sale",
+        referenceId: createdServiceSale.id
+      }
+    });
+    report.checks.push({
+      name: "sales.checkout.service_without_stock_decrement",
+      passed: serviceSaleStockMovements === 0
+    });
+    report.checks.push({
+      name: "sales.checkout.service_cash_movement",
+      passed: serviceSaleCashMovements === 1
+    });
+
+    const rollbackCountsBefore = {
+      sales: await prisma.sale.count(),
+      items: await prisma.saleItem.count(),
+      payments: await prisma.salePayment.count(),
+      stockMovements: await prisma.stockMovement.count(),
+      cashMovements: await prisma.cashMovement.count()
+    };
+    const balanceBeforeRollback = await prisma.stockBalance.findUnique({
+      where: {
+        productId_locationId: {
+          productId: product.id,
+          locationId: secondaryLocation.id
+        }
+      }
+    });
+    let rollbackTriggered = false;
+    try {
+      await sales.checkout(
+        {
+          customerId: customer.id,
+          cashSessionId: createdSession.id,
+          items: [
+            {
+              productId: product.id,
+              stockLocationId: secondaryLocation.id,
+              quantity: 999,
+              unitPrice: 2900,
+              discountAmount: 0
+            }
+          ],
+          payments: [
+            {
+              method: "PIX",
+              amount: 2900 * 999
+            }
+          ],
+          discountAmount: 0,
+          notes: "smoke-sale-rollback"
+        },
+        {
+          ...auditContext,
+          userId: loginSession.user.id,
+          storeId: originalStore.id
+        }
+      );
+    } catch (error) {
+      rollbackTriggered = /Estoque insuficiente/i.test(error.message);
+    }
+    const rollbackCountsAfter = {
+      sales: await prisma.sale.count(),
+      items: await prisma.saleItem.count(),
+      payments: await prisma.salePayment.count(),
+      stockMovements: await prisma.stockMovement.count(),
+      cashMovements: await prisma.cashMovement.count()
+    };
+    const balanceAfterRollback = await prisma.stockBalance.findUnique({
+      where: {
+        productId_locationId: {
+          productId: product.id,
+          locationId: secondaryLocation.id
+        }
+      }
+    });
+    const rolledBackSale = await prisma.sale.findFirst({
+      where: {
+        notes: "smoke-sale-rollback"
+      }
+    });
+    report.checks.push({
+      name: "sales.checkout.rollback_on_error",
+      passed:
+        rollbackTriggered &&
+        rollbackCountsBefore.sales === rollbackCountsAfter.sales &&
+        rollbackCountsBefore.items === rollbackCountsAfter.items &&
+        rollbackCountsBefore.payments === rollbackCountsAfter.payments &&
+        rollbackCountsBefore.stockMovements === rollbackCountsAfter.stockMovements &&
+        rollbackCountsBefore.cashMovements === rollbackCountsAfter.cashMovements &&
+        balanceBeforeRollback?.quantity === balanceAfterRollback?.quantity &&
+        rolledBackSale === null
+    });
 
     createdServiceOrder = await serviceOrders.create(
       originalStore.id,
@@ -935,7 +1138,8 @@ async function main() {
       },
       {
         ...auditContext,
-        userId: loginSession.user.id
+        userId: loginSession.user.id,
+        storeId: originalStore.id
       }
     );
     report.checks.push({
@@ -1505,6 +1709,17 @@ async function main() {
           }
         })
         .then(() => report.cleanup.push("service-order"))
+        .catch(() => null);
+    }
+
+    if (createdServiceSale?.id) {
+      await prisma.sale
+        .delete({
+          where: {
+            id: createdServiceSale.id
+          }
+        })
+        .then(() => report.cleanup.push("service-sale"))
         .catch(() => null);
     }
 

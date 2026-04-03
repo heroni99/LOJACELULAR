@@ -1,16 +1,17 @@
 import { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useFieldArray, useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { LoadingButton } from "@/components/ui/loading-button";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   createServiceOrder,
   listCustomers,
@@ -20,6 +21,7 @@ import {
   listUsers
 } from "@/lib/api";
 import { parseCurrencyToCents } from "@/lib/format";
+import { parseApiError } from "@/lib/api-error";
 import {
   AdvancedFeedback,
   advancedSelectClassName,
@@ -27,6 +29,7 @@ import {
   emptyToUndefined,
   formatServiceOrderItemType
 } from "@/pages/advanced/advanced-shared";
+import { success } from "@/lib/toast";
 
 const itemSchema = z.object({
   itemType: z.enum(["PART", "SERVICE", "MANUAL_ITEM"]),
@@ -156,10 +159,11 @@ export function ServiceOrderFormPage() {
           : undefined
       }),
     onSuccess: (order) => {
+      success("OS aberta com sucesso.");
       navigate(`/service-orders/${order.id}`);
     },
     onError: (error: Error) => {
-      setFeedback({ tone: "error", text: error.message });
+      setFeedback({ tone: "error", text: parseApiError(error) });
     }
   });
 
@@ -168,17 +172,9 @@ export function ServiceOrderFormPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Assistencia tecnica"
+        backHref="/service-orders"
+        subtitle="Abra a OS com cliente, equipamento, defeito relatado e itens previstos da bancada."
         title="Nova ordem de servico"
-        description="Abra a OS com cliente, equipamento, defeito relatado e itens previstos da bancada."
-        actions={
-          <Button asChild type="button" variant="outline">
-            <Link to="/service-orders">
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Voltar
-            </Link>
-          </Button>
-        }
       />
 
       <AdvancedFeedback feedback={feedback} />
@@ -424,9 +420,9 @@ export function ServiceOrderFormPage() {
         ) : null}
 
         <div className="flex justify-end">
-          <Button disabled={createMutation.isPending} type="submit">
-            {createMutation.isPending ? "Salvando..." : "Abrir OS"}
-          </Button>
+          <LoadingButton isLoading={createMutation.isPending} loadingText="Salvando..." type="submit">
+            Abrir OS
+          </LoadingButton>
         </div>
       </form>
     </div>

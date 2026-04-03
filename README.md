@@ -28,6 +28,8 @@ O shell autenticado hoje expoe:
 - `service-orders`
 - `purchase-orders`
 - `financial`
+- `commissions/my`
+- `commissions/team`
 - `accounts-payable`
 - `accounts-receivable`
 - `reports`
@@ -58,8 +60,11 @@ O shell autenticado hoje expoe:
 - `stock_locations` com cadastro e local padrao
 - `sales` com checkout transacional real, exigencia de caixa aberto, baixa de estoque por local e atualizacao de `product_units`
 - `pdv` com busca real por nome, barcode, `internal_code`, `supplier_code` e IMEI, local de estoque operacional, scanner mobile em tempo real por WebSocket e venda de item serializado por unidade
-- `fiscal-core` minimo com comprovante interno, cancelamento rastreado, historico de eventos e relatorio fiscal basico
-- `service-orders` com abertura, edicao, historico real de status, itens operacionais e consumo de pecas com impacto em estoque
+- `fiscal-core` minimo com comprovante interno, impressao termica 80mm, cancelamento rastreado, historico de eventos e relatorio fiscal basico
+- `service-orders` com abertura, edicao, historico real de status, itens operacionais, consumo de pecas com impacto em estoque e comprovante imprimivel
+- `service_order_quotes` operacionais no fluxo de OS, com criacao, edicao pendente, aprovacao e rejeicao
+- `service_order_attachments` operacionais no fluxo de OS, com upload local, listagem e remocao
+- `commissions` com resumo mensal pessoal, visao da equipe, registro manual e metas por periodo
 - `purchase-orders` com criacao, alteracao de status, recebimento parcial/total e entrada real em estoque
 - `sale-returns` com devolucao vinculada a venda, retorno real ao estoque e reembolso operacional coerente
 - `accounts-payable` com vinculacao opcional a `purchase-orders`, persistencia real e baixa operacional
@@ -82,10 +87,6 @@ Eles existem no repositorio e ja estao no shell principal, mas ainda estao em fa
 Estas areas ja tem base de dados preparada, mas ainda nao possuem modulo executavel correspondente:
 
 - componentes fiscais ainda nao operacionalizados (`fiscal_config`, `fiscal_jobs`, `fiscal_xml_storage`)
-- `service_order_attachments`
-- `service_order_quotes`
-- `sales_commissions`
-- `sales_targets`
 
 ## Nao implementado como modulo executavel
 
@@ -93,7 +94,7 @@ Estas areas ja tem base de dados preparada, mas ainda nao possuem modulo executa
 - `fiscal-queue` operacional
 - `fiscal-config` operacional
 - integracao fiscal avancada com `sales` alem do comprovante interno/documental
-- `printing` geral fora do fluxo de etiquetas de produto
+- `printing` geral fora do fluxo de etiquetas de produto e comprovante interno de venda
 
 ## Estrutura
 
@@ -257,7 +258,7 @@ Ambos nascem com a mesma senha inicial definida em `SEED_ADMIN_PASSWORD`.
 1. Validar e consolidar os modulos ainda parciais do shell: `cash`, `financial`, `dashboard`, `reports`
 2. Fechar a auditoria complementar da operacao comercial e dos relatorios
 3. Evoluir do `fiscal-core` interno para backlog fiscal avancado sem fingir emissao externa pronta
-4. Tratar `service_order_attachments`, `service_order_quotes`, `commissions` e `printing` como backlog real, sem promover schema preparado para modulo pronto
+4. Tratar `printing` como backlog real e consolidar o modulo novo de `commissions`
 
 ## Observacoes finais
 

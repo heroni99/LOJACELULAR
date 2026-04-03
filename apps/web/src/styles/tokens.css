@@ -1,0 +1,10 @@
+:root {
+  --color-primary: hsl(var(--primary));
+  --color-surface: #111827;
+  --color-surface-2: #1f2937;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-text: #f9fafb;
+  --color-text-muted: #9ca3af;
+  --radius-card: 12px;
+  --radius-input: 8px;
+}

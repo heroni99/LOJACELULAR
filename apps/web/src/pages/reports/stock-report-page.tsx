@@ -1,33 +1,31 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, RefreshCw, Search } from "lucide-react";
-import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
+import { AlertTriangle, Boxes, Download, PackageSearch, RefreshCw, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { DetailCard } from "@/components/ui/detail-card";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
+import { useAppSession } from "@/app/session-context";
 import {
   downloadStockReportCsv,
   getStockReport,
   listCategories,
-  listStockLocations,
-  listSuppliers
+  listSuppliers,
+  type StockReport
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { formatCompactNumber, formatCurrency } from "@/lib/format";
-import {
-  downloadBrowserFile,
-  ReportMetricCard,
-  selectClassName,
-  SingleSeriesBarChart
-} from "@/features/reports/reporting-ui";
+import { downloadBrowserFile, SingleSeriesBarChart } from "@/features/reports/reporting-ui";
+import { reportSelectClassName } from "@/pages/reports/reports-shared";
+
+type StockReportRow = StockReport["rows"][number];
 
 export function StockReportPage() {
   const { authEnabled, session } = useAppSession();
   const token = authEnabled ? session.accessToken : undefined;
-  const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [supplierId, setSupplierId] = useState("");
-  const [locationId, setLocationId] = useState("");
   const [active, setActive] = useState<"" | "true" | "false">("true");
   const [lowStockOnly, setLowStockOnly] = useState(false);
 
@@ -39,18 +37,12 @@ export function StockReportPage() {
     queryKey: ["suppliers", "reports", "stock"],
     queryFn: () => listSuppliers(token, { active: true, take: 200 })
   });
-  const locationsQuery = useQuery({
-    queryKey: ["stock-locations", "reports", "stock"],
-    queryFn: () => listStockLocations(token, { active: true, take: 100 })
-  });
   const reportQuery = useQuery({
-    queryKey: ["reports", "stock", search, categoryId, supplierId, locationId, active, lowStockOnly],
+    queryKey: ["reports", "stock", categoryId, supplierId, active, lowStockOnly],
     queryFn: () =>
       getStockReport(token, {
-        search: search.trim() || undefined,
         categoryId: categoryId || undefined,
         supplierId: supplierId || undefined,
-        locationId: locationId || undefined,
         active: active === "" ? undefined : active === "true",
         lowStockOnly,
         take: 150
@@ -60,10 +52,8 @@ export function StockReportPage() {
   const exportMutation = useMutation({
     mutationFn: () =>
       downloadStockReportCsv(token, {
-        search: search.trim() || undefined,
         categoryId: categoryId || undefined,
         supplierId: supplierId || undefined,
-        locationId: locationId || undefined,
         active: active === "" ? undefined : active === "true",
         lowStockOnly
       }),
@@ -73,47 +63,89 @@ export function StockReportPage() {
   });
 
   const report = reportQuery.data;
+  const errorMessage = getErrorMessage(reportQuery.error) ?? getErrorMessage(exportMutation.error);
+
+  const columns: Array<DataTableColumn<StockReportRow>> = [
+    {
+      id: "internalCode",
+      header: "Codigo",
+      cell: (row) => <span className="font-semibold">{row.internalCode}</span>
+    },
+    {
+      id: "name",
+      header: "Nome",
+      cell: (row) => (
+        <div className="space-y-1">
+          <p className="font-semibold">{row.name}</p>
+          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            {row.supplier?.tradeName || row.supplier?.name || "Sem fornecedor"}
+          </p>
+        </div>
+      )
+    },
+    {
+      id: "category",
+      header: "Categoria",
+      cell: (row) => row.category.name
+    },
+    {
+      id: "stock",
+      header: "Estoque total por local",
+      cell: (row) => (
+        <div className="space-y-1">
+          <p className="font-semibold">{formatCompactNumber(row.totalStock)}</p>
+          <p className="text-xs leading-5" style={{ color: "var(--color-text-muted)" }}>
+            {row.balances.length
+              ? row.balances
+                  .map((balance) => `${balance.location.name}: ${formatCompactNumber(balance.quantity)}`)
+                  .join(" | ")
+              : "Sem saldo por local"}
+          </p>
+        </div>
+      )
+    },
+    {
+      id: "costPrice",
+      header: "Custo",
+      cell: (row) => formatCurrency(row.costPrice)
+    },
+    {
+      id: "salePrice",
+      header: "Preco",
+      cell: (row) => formatCurrency(row.salePrice)
+    },
+    {
+      id: "stockMin",
+      header: "Minimo",
+      cell: (row) => formatCompactNumber(row.stockMin)
+    }
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Relatorios"
-        title="Relatorio de estoque"
-        description="Saldo real por produto e local, com valor de inventario, baixo estoque e exportacao CSV."
         actions={
           <>
             <Button onClick={() => void reportQuery.refetch()} type="button" variant="outline">
               <RefreshCw className="mr-2 h-4 w-4" />
               Atualizar
             </Button>
-            <Button disabled={exportMutation.isPending} onClick={() => exportMutation.mutate()} type="button">
+            <Button
+              disabled={exportMutation.isPending}
+              onClick={() => exportMutation.mutate()}
+              type="button"
+            >
               <Download className="mr-2 h-4 w-4" />
-              CSV
+              Exportar CSV
             </Button>
           </>
         }
+        subtitle="Estoque consolidado por produto e local, com foco em reposicao e valor unitario."
+        title="Relatorio de estoque"
       />
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Filtros</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px_220px_220px_180px_auto]">
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="stock-report-search">
-              Busca
-            </label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-10"
-                id="stock-report-search"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Produto, codigo interno ou fornecedor"
-                value={search}
-              />
-            </div>
-          </div>
+      <DetailCard title="Filtros">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <SelectField
             label="Categoria"
             onChange={setCategoryId}
@@ -133,168 +165,99 @@ export function StockReportPage() {
             value={supplierId}
           />
           <SelectField
-            label="Local"
-            onChange={setLocationId}
-            options={(locationsQuery.data ?? []).map((item) => ({
-              label: item.name,
-              value: item.id
-            }))}
-            value={locationId}
+            label="Ativo"
+            onChange={(value) => setActive(value as typeof active)}
+            options={[
+              { label: "Ativos", value: "true" },
+              { label: "Inativos", value: "false" }
+            ]}
+            value={active}
           />
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Status</label>
-            <select
-              className={selectClassName}
-              onChange={(event) => setActive(event.target.value as typeof active)}
-              value={active}
-            >
-              <option value="">Todos</option>
-              <option value="true">Ativos</option>
-              <option value="false">Inativos</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <label className="flex h-11 items-center gap-2 rounded-xl border border-border/70 px-4 text-sm">
-              <input
-                checked={lowStockOnly}
-                onChange={(event) => setLowStockOnly(event.target.checked)}
-                type="checkbox"
-              />
-              So baixo estoque
-            </label>
-          </div>
-        </CardContent>
-      </Card>
+          <CheckboxField
+            checked={lowStockOnly}
+            label="Abaixo do minimo"
+            onChange={setLowStockOnly}
+          />
+        </div>
+        {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
+      </DetailCard>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <ReportMetricCard
-          helper="Produtos retornados pelo filtro"
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          icon={<PackageSearch className="h-5 w-5" />}
           label="Produtos"
           value={formatCompactNumber(report?.summary.trackedProducts ?? 0)}
         />
-        <ReportMetricCard
-          helper="Quantidade total em estoque"
+        <StatCard
+          icon={<Boxes className="h-5 w-5" />}
           label="Saldo total"
           value={formatCompactNumber(report?.summary.totalQuantity ?? 0)}
         />
-        <ReportMetricCard
-          helper="Valor em custo dos itens filtrados"
+        <StatCard
+          icon={<Wallet className="h-5 w-5" />}
           label="Valor custo"
           value={formatCurrency(report?.summary.totalCostValue ?? 0)}
         />
-        <ReportMetricCard
-          helper="Valor potencial de venda"
-          label="Valor venda"
-          value={formatCurrency(report?.summary.totalSaleValue ?? 0)}
-        />
-        <ReportMetricCard
-          helper="Itens abaixo do minimo"
+        <StatCard
+          icon={<AlertTriangle className="h-5 w-5" />}
           label="Baixo estoque"
           value={formatCompactNumber(report?.summary.lowStockCount ?? 0)}
+          variant="warning"
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_340px]">
-        <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="text-xl">Saldo por categoria</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <SingleSeriesBarChart
-              colorClassName="bg-slate-900/80"
-              emptyMessage="Sem saldo para os filtros atuais."
-              entries={(report?.charts.categoryBreakdown ?? []).map((entry) => ({
-                label: entry.name.slice(0, 10),
-                value: entry.totalQuantity
-              }))}
-              formatValue={formatCompactNumber}
-            />
-          </CardContent>
-        </Card>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
+        <DetailCard title="Saldo por categoria">
+          <SingleSeriesBarChart
+            colorClassName="bg-slate-900/80"
+            emptyMessage="Sem saldo para os filtros atuais."
+            entries={(report?.charts.categoryBreakdown ?? []).map((entry) => ({
+              label: entry.name.slice(0, 12),
+              value: entry.totalQuantity
+            }))}
+            formatValue={formatCompactNumber}
+          />
+        </DetailCard>
 
-        <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="text-xl">Reposicao</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <DetailCard title="Reposicao imediata">
+          <div className="space-y-3">
             {(report?.rows ?? [])
               .filter((row) => row.lowStock)
               .slice(0, 8)
               .map((row) => (
-                <div key={row.productId} className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                <div
+                  className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900"
+                  key={row.productId}
+                >
                   <p className="font-semibold">{row.name}</p>
-                  <p className="text-xs text-amber-800">
-                    {row.internalCode} • saldo {formatCompactNumber(row.totalStock)} / minimo {formatCompactNumber(row.stockMin)}
+                  <p className="mt-1 text-xs">
+                    {row.internalCode} • saldo {formatCompactNumber(row.totalStock)} / minimo{" "}
+                    {formatCompactNumber(row.stockMin)}
                   </p>
                 </div>
               ))}
             {!report?.rows.some((row) => row.lowStock) ? (
-              <p className="text-sm text-muted-foreground">Nenhum item em reposicao imediata.</p>
+              <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>
+                Nenhum item com reposicao imediata.
+              </p>
             ) : null}
-          </CardContent>
-        </Card>
+          </div>
+        </DetailCard>
       </div>
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Saldo por produto</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">Carregando relatorio...</div>
-          ) : null}
-          {reportQuery.error ? (
-            <div className="p-6 text-sm text-red-700">{(reportQuery.error as Error).message}</div>
-          ) : null}
-          {exportMutation.error ? (
-            <div className="px-6 pb-4 text-sm text-red-700">{(exportMutation.error as Error).message}</div>
-          ) : null}
-          {report?.rows.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-border/70 bg-secondary/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Produto</th>
-                    <th className="px-4 py-3 font-medium">Categoria</th>
-                    <th className="px-4 py-3 font-medium">Saldo</th>
-                    <th className="px-4 py-3 font-medium">Minimo</th>
-                    <th className="px-4 py-3 font-medium">Locais</th>
-                    <th className="px-4 py-3 font-medium">Valor venda</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.rows.map((row) => (
-                    <tr key={row.productId} className="border-b border-border/60">
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p className="font-semibold">{row.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {row.internalCode}
-                            {row.supplierCode ? ` • ${row.supplierCode}` : ""}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">{row.category.name}</td>
-                      <td className="px-4 py-4 font-semibold">{formatCompactNumber(row.totalStock)}</td>
-                      <td className="px-4 py-4">{formatCompactNumber(row.stockMin)}</td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {row.balances.length
-                          ? row.balances.map((balance) => `${balance.location.name}: ${balance.quantity}`).join(" • ")
-                          : "Sem saldo"}
-                      </td>
-                      <td className="px-4 py-4">{formatCurrency(row.inventorySaleValue)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : !reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              Nenhum produto encontrado com os filtros atuais.
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <DetailCard title="Produtos filtrados">
+        <DataTable
+          columns={columns}
+          data={report?.rows ?? []}
+          emptyDescription="Amplie os filtros ou ajuste a visao de ativos."
+          emptyTitle="Nenhum produto encontrado"
+          getRowClassName={(row) =>
+            row.lowStock ? "bg-amber-50/90 hover:bg-amber-100/70" : undefined
+          }
+          loading={reportQuery.isLoading}
+          rowKey={(row) => row.productId}
+        />
+      </DetailCard>
     </div>
   );
 }
@@ -312,8 +275,12 @@ function SelectField({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{label}</label>
-      <select className={selectClassName} onChange={(event) => onChange(event.target.value)} value={value}>
+      <FieldLabel>{label}</FieldLabel>
+      <select
+        className={reportSelectClassName}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
         <option value="">Todos</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -323,4 +290,55 @@ function SelectField({
       </select>
     </div>
   );
+}
+
+function CheckboxField({
+  checked,
+  label,
+  onChange
+}: {
+  checked: boolean;
+  label: string;
+  onChange(nextValue: boolean): void;
+}) {
+  return (
+    <div className="space-y-2">
+      <FieldLabel>Filtro especial</FieldLabel>
+      <label
+        className="flex h-11 items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-4"
+        style={{ color: "var(--color-text)" }}
+      >
+        <input
+          checked={checked}
+          className="h-4 w-4 rounded border-white/20"
+          onChange={(event) => onChange(event.target.checked)}
+          type="checkbox"
+        />
+        {label}
+      </label>
+    </div>
+  );
+}
+
+function FieldLabel({ children }: { children: string }) {
+  return (
+    <label
+      className="text-[13px] font-medium"
+      style={{ color: "var(--color-text-muted)" }}
+    >
+      {children}
+    </label>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {message}
+    </div>
+  );
+}
+
+function getErrorMessage(error: unknown) {
+  return error ? parseApiError(error) : null;
 }

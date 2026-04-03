@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { LoaderCircle, Pencil, Plus, RefreshCw, Search, Wallet } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Search, Wallet } from "lucide-react";
 import { useForm, type UseFormRegisterReturn } from "react-hook-form";
 import { z } from "zod";
 import { useAppSession } from "@/app/session-context";
@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { LoadingButton } from "@/components/ui/loading-button";
 import {
   createAccountsPayable,
   getPurchaseOrder,
@@ -20,8 +21,10 @@ import {
   type AccountsPayableEntry,
   type PaymentMethodName
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
 import { centsToInputValue, formatCurrency } from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
+import { error as toastError, success } from "@/lib/toast";
 import {
   FeedbackBanner,
   FinancialStatusBadge,
@@ -169,10 +172,7 @@ export function AccountsPayablePage() {
       return createAccountsPayable(token, payload);
     },
     onSuccess: async () => {
-      setFeedback({
-        tone: "success",
-        text: editingEntry ? "Conta a pagar atualizada." : "Conta a pagar criada."
-      });
+      success(editingEntry ? "Conta a pagar atualizada." : "Conta a pagar criada.");
       setEditingEntry(null);
       setShowForm(false);
       await Promise.all([
@@ -180,7 +180,7 @@ export function AccountsPayablePage() {
         queryClient.invalidateQueries({ queryKey: ["financial-summary"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const payMutation = useMutation({
@@ -195,7 +195,7 @@ export function AccountsPayablePage() {
       });
     },
     onSuccess: async () => {
-      setFeedback({ tone: "success", text: "Pagamento registrado com sucesso." });
+      success("Pagamento registrado com sucesso.");
       setPayingEntry(null);
       setPaymentMethod("CASH");
       setPaymentNotes("");
@@ -205,20 +205,20 @@ export function AccountsPayablePage() {
         queryClient.invalidateQueries({ queryKey: ["cash"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const cancelMutation = useMutation({
     mutationFn: (entry: AccountsPayableEntry) =>
       updateAccountsPayable(token, entry.id, { status: "CANCELED" }),
     onSuccess: async () => {
-      setFeedback({ tone: "success", text: "Conta cancelada." });
+      success("Conta cancelada.");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["accounts-payable"] }),
         queryClient.invalidateQueries({ queryKey: ["financial-summary"] })
       ]);
     },
-    onError: (error: Error) => setFeedback({ tone: "error", text: error.message })
+    onError: (error: Error) => toastError(parseApiError(error))
   });
 
   const entries = accountsQuery.data ?? [];
@@ -379,10 +379,9 @@ export function AccountsPayablePage() {
                 >
                   Fechar
                 </Button>
-                <Button disabled={saveMutation.isPending} type="submit">
-                  {saveMutation.isPending ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
+                <LoadingButton isLoading={saveMutation.isPending} loadingText="Aguarde..." type="submit">
                   Salvar conta
-                </Button>
+                </LoadingButton>
               </div>
             </form>
           </CardContent>
@@ -419,10 +418,9 @@ export function AccountsPayablePage() {
               <Button onClick={() => setPayingEntry(null)} type="button" variant="outline">
                 Cancelar
               </Button>
-              <Button disabled={payMutation.isPending} onClick={() => payMutation.mutate()} type="button">
-                {payMutation.isPending ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
+              <LoadingButton isLoading={payMutation.isPending} loadingText="Aguarde..." onClick={() => payMutation.mutate()} type="button">
                 Confirmar pagamento
-              </Button>
+              </LoadingButton>
             </div>
           </CardContent>
         </Card>
@@ -431,7 +429,7 @@ export function AccountsPayablePage() {
       <Card className="bg-white/90">
         <CardContent className="p-0">
           {accountsQuery.isLoading ? <div className="p-6 text-sm text-muted-foreground">Carregando contas a pagar...</div> : null}
-          {accountsQuery.error ? <div className="p-6 text-sm text-red-700">{(accountsQuery.error as Error).message}</div> : null}
+          {accountsQuery.error ? <div className="p-6 text-sm text-red-700">{parseApiError(accountsQuery.error)}</div> : null}
           {entries.length ? (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">

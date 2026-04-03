@@ -1,50 +1,56 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, RefreshCw, Search } from "lucide-react";
+import { Download, DollarSign, RefreshCw, RotateCcw, ShoppingBag, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useAppSession } from "@/app/session-context";
-import { PageHeader } from "@/components/app/page-header";
+import { StatusBadge } from "@/components/app/status-badge";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { DetailCard } from "@/components/ui/detail-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard } from "@/components/ui/stat-card";
 import {
   downloadSalesReportCsv,
   getSalesReport,
-  listCustomers
+  listUsers,
+  type PaymentMethodName,
+  type SalesReport
 } from "@/lib/api";
+import { parseApiError } from "@/lib/api-error";
+import { formatCompactNumber, formatCurrency, formatDateTime } from "@/lib/format";
+import { downloadBrowserFile } from "@/features/reports/reporting-ui";
+import { monthStartDateValue, todayDateValue } from "@/features/reports/report-utils";
 import {
-  formatCompactNumber,
-  formatCurrency,
-  formatDateTime
-} from "@/lib/format";
-import {
-  downloadBrowserFile,
-  DualSeriesBarChart,
-  ReportMetricCard,
-  selectClassName
-} from "@/features/reports/reporting-ui";
-import { monthStartDateValue, shortDateLabel, todayDateValue } from "@/features/reports/report-utils";
+  reportFieldClassName,
+  reportSelectClassName,
+  SaleStatusBadge
+} from "@/pages/reports/reports-shared";
+import { formatPaymentMethod } from "@/pages/finance/finance-shared";
+
+type SalesReportRow = SalesReport["rows"][number];
 
 export function SalesReportPage() {
   const { authEnabled, session } = useAppSession();
   const token = authEnabled ? session.accessToken : undefined;
-  const [search, setSearch] = useState("");
-  const [customerId, setCustomerId] = useState("");
+  const [userId, setUserId] = useState("");
   const [status, setStatus] = useState<"" | "COMPLETED" | "CANCELED" | "REFUNDED">("COMPLETED");
+  const [paymentMethod, setPaymentMethod] = useState<"" | PaymentMethodName>("");
   const [startDate, setStartDate] = useState(monthStartDateValue());
   const [endDate, setEndDate] = useState(todayDateValue());
 
-  const customersQuery = useQuery({
-    queryKey: ["customers", "reports", "sales"],
-    queryFn: () => listCustomers(token, { active: true, take: 200 })
+  const usersQuery = useQuery({
+    queryKey: ["users", "reports", "sales"],
+    queryFn: () => listUsers(token, { active: true, take: 200 })
   });
 
   const reportQuery = useQuery({
-    queryKey: ["reports", "sales", search, customerId, status, startDate, endDate],
+    queryKey: ["reports", "sales", userId, status, paymentMethod, startDate, endDate],
     queryFn: () =>
       getSalesReport(token, {
-        search: search.trim() || undefined,
-        customerId: customerId || undefined,
+        userId: userId || undefined,
         status: status || undefined,
+        paymentMethod: paymentMethod || undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         take: 120
@@ -54,9 +60,9 @@ export function SalesReportPage() {
   const exportMutation = useMutation({
     mutationFn: () =>
       downloadSalesReportCsv(token, {
-        search: search.trim() || undefined,
-        customerId: customerId || undefined,
+        userId: userId || undefined,
         status: status || undefined,
+        paymentMethod: paymentMethod || undefined,
         startDate: startDate || undefined,
         endDate: endDate || undefined
       }),
@@ -66,13 +72,71 @@ export function SalesReportPage() {
   });
 
   const report = reportQuery.data;
+  const errorMessage = getErrorMessage(reportQuery.error) ?? getErrorMessage(exportMutation.error);
+
+  const columns: Array<DataTableColumn<SalesReportRow>> = [
+    {
+      id: "saleNumber",
+      header: "Numero",
+      cell: (row) => (
+        <div className="space-y-1">
+          <Link
+            className="font-semibold text-primary underline-offset-4 hover:underline"
+            to={`/sales/${row.id}`}
+          >
+            {row.saleNumber}
+          </Link>
+          <p className="text-xs" style={{ color: "var(--color-text-muted)" }}>
+            {row.receiptNumber ? `Recibo ${row.receiptNumber}` : "Sem recibo"}
+          </p>
+        </div>
+      )
+    },
+    {
+      id: "completedAt",
+      header: "Data/hora",
+      cell: (row) => (
+        <span style={{ color: "var(--color-text-muted)" }}>{formatDateTime(row.completedAt)}</span>
+      )
+    },
+    {
+      id: "customer",
+      header: "Cliente",
+      cell: (row) => row.customer?.name || "Consumidor nao identificado"
+    },
+    {
+      id: "operator",
+      header: "Operador",
+      cell: (row) => row.user?.name || "Sem operador"
+    },
+    {
+      id: "payment",
+      header: "Pagamento",
+      cell: (row) =>
+        row.paymentMethods.length
+          ? row.paymentMethods.map((method) => formatPaymentMethod(method)).join(", ")
+          : "Nao informado"
+    },
+    {
+      id: "total",
+      header: "Total",
+      cell: (row) => <span className="font-semibold">{formatCurrency(row.total)}</span>
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: (row) => (
+        <div className="flex flex-wrap gap-2">
+          <SaleStatusBadge status={row.status} />
+          <StatusBadge tone="slate">{row.fiscalStatus}</StatusBadge>
+        </div>
+      )
+    }
+  ];
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Relatorios"
-        title="Relatorio de vendas"
-        description="Consulta real de vendas persistidas, com filtros por periodo, cliente e status, grafico diario e exportacao CSV."
         actions={
           <>
             <Button onClick={() => void reportQuery.refetch()} type="button" variant="outline">
@@ -85,224 +149,122 @@ export function SalesReportPage() {
               type="button"
             >
               <Download className="mr-2 h-4 w-4" />
-              CSV
+              Exportar CSV
             </Button>
           </>
         }
+        subtitle="Vendas persistidas com filtro por periodo, operador, status e forma de pagamento."
+        title="Relatorio de vendas"
       />
 
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Filtros</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_220px_180px_180px_180px]">
-          <div className="space-y-2">
-            <label className="text-sm font-medium" htmlFor="sales-report-search">
-              Busca
-            </label>
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                className="pl-10"
-                id="sales-report-search"
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Venda, recibo ou cliente"
-                value={search}
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Cliente</label>
-            <select
-              className={selectClassName}
-              onChange={(event) => setCustomerId(event.target.value)}
-              value={customerId}
-            >
-              <option value="">Todos</option>
-              {(customersQuery.data ?? []).map((customer) => (
-                <option key={customer.id} value={customer.id}>
-                  {customer.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Status</label>
-            <select
-              className={selectClassName}
-              onChange={(event) => setStatus(event.target.value as typeof status)}
-              value={status}
-            >
-              <option value="">Todos</option>
-              <option value="COMPLETED">Concluida</option>
-              <option value="CANCELED">Cancelada</option>
-              <option value="REFUNDED">Reembolsada</option>
-            </select>
-          </div>
-          <FieldDate label="De" onChange={setStartDate} value={startDate} />
-          <FieldDate label="Ate" onChange={setEndDate} value={endDate} />
-        </CardContent>
-      </Card>
+      <DetailCard title="Filtros">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <SelectField
+            label="Operador"
+            onChange={setUserId}
+            options={(usersQuery.data ?? []).map((user) => ({
+              label: user.name,
+              value: user.id
+            }))}
+            value={userId}
+          />
+          <SelectField
+            label="Status"
+            onChange={(value) => setStatus(value as typeof status)}
+            options={[
+              { label: "Concluida", value: "COMPLETED" },
+              { label: "Cancelada", value: "CANCELED" },
+              { label: "Estornada", value: "REFUNDED" }
+            ]}
+            value={status}
+          />
+          <SelectField
+            label="Forma de pagamento"
+            onChange={(value) => setPaymentMethod(value as typeof paymentMethod)}
+            options={[
+              { label: "Dinheiro", value: "CASH" },
+              { label: "PIX", value: "PIX" },
+              { label: "Debito", value: "DEBIT" },
+              { label: "Credito", value: "CREDIT" },
+              { label: "Credito da loja", value: "STORE_CREDIT" }
+            ]}
+            value={paymentMethod}
+          />
+          <DateField label="Data inicio" onChange={setStartDate} value={startDate} />
+          <DateField label="Data fim" onChange={setEndDate} value={endDate} />
+        </div>
+        {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
+      </DetailCard>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <ReportMetricCard
-          helper="Pedidos retornados pelo filtro atual"
-          label="Vendas"
-          value={formatCompactNumber(report?.summary.orderCount ?? 0)}
-        />
-        <ReportMetricCard
-          helper="Faturamento total das vendas filtradas"
-          label="Faturamento"
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          icon={<DollarSign className="h-5 w-5" />}
+          label="Total periodo"
           value={formatCurrency(report?.summary.totalRevenue ?? 0)}
         />
-        <ReportMetricCard
-          helper="Lucro estimado por custo cadastrado"
-          label="Lucro"
-          value={formatCurrency(report?.summary.totalProfit ?? 0)}
+        <StatCard
+          icon={<ShoppingBag className="h-5 w-5" />}
+          label="Qtd vendas"
+          value={formatCompactNumber(report?.summary.orderCount ?? 0)}
         />
-        <ReportMetricCard
-          helper="Media por venda concluida"
+        <StatCard
+          icon={<TrendingUp className="h-5 w-5" />}
           label="Ticket medio"
           value={formatCurrency(report?.summary.averageTicket ?? 0)}
         />
-        <ReportMetricCard
-          helper="Quantidade total de itens vendidos"
-          label="Itens"
-          value={formatCompactNumber(report?.summary.totalItemsSold ?? 0)}
+        <StatCard
+          icon={<RotateCcw className="h-5 w-5" />}
+          label="Total cancelado"
+          value={formatCurrency(report?.summary.totalCanceled ?? 0)}
+          variant="warning"
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_360px]">
-        <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="text-xl">Faturamento diario</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DualSeriesBarChart
-              emptyMessage="Sem vendas no periodo filtrado."
-              entries={(report?.charts.dailyRevenue ?? []).map((entry) => ({
-                label: shortDateLabel(entry.date),
-                firstValue: entry.revenue,
-                secondValue: entry.profit
-              }))}
-              firstColorClassName="bg-slate-900/80"
-              firstLabel="Faturamento"
-              formatValue={formatCurrency}
-              secondColorClassName="bg-orange-500/80"
-              secondLabel="Lucro"
-            />
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="text-xl">Top itens vendidos</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {report?.topProducts.length ? (
-              report.topProducts.map((item) => (
-                <div
-                  key={item.productId}
-                  className="rounded-2xl border border-border/70 bg-secondary/20 px-4 py-3"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-semibold">{item.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.internalCode} • {item.category.name}
-                      </p>
-                    </div>
-                    <p className="text-sm font-semibold">
-                      {formatCompactNumber(item.quantitySold)} un.
-                    </p>
-                  </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Receita {formatCurrency(item.revenue)}
-                  </p>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                Nenhum item vendido no periodo atual.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="bg-white/90">
-        <CardHeader>
-          <CardTitle className="text-xl">Vendas filtradas</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">Carregando relatorio...</div>
-          ) : null}
-          {reportQuery.error ? (
-            <div className="p-6 text-sm text-red-700">{(reportQuery.error as Error).message}</div>
-          ) : null}
-          {exportMutation.error ? (
-            <div className="px-6 pb-4 text-sm text-red-700">
-              {(exportMutation.error as Error).message}
-            </div>
-          ) : null}
-          {report?.rows.length ? (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-border/70 bg-secondary/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 font-medium">Venda</th>
-                    <th className="px-4 py-3 font-medium">Cliente</th>
-                    <th className="px-4 py-3 font-medium">Data</th>
-                    <th className="px-4 py-3 font-medium">Itens</th>
-                    <th className="px-4 py-3 font-medium">Total</th>
-                    <th className="px-4 py-3 font-medium">Lucro</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {report.rows.map((row) => (
-                    <tr key={row.id} className="border-b border-border/60">
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p className="font-semibold">{row.saleNumber}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {row.receiptNumber || "Sem recibo"}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {row.customer?.name || "Consumidor nao identificado"}
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {formatDateTime(row.completedAt)}
-                      </td>
-                      <td className="px-4 py-4">{formatCompactNumber(row.itemCount)}</td>
-                      <td className="px-4 py-4 font-semibold">{formatCurrency(row.total)}</td>
-                      <td className="px-4 py-4">{formatCurrency(row.estimatedProfit)}</td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <p className="font-semibold">{row.status}</p>
-                          <p className="text-xs text-muted-foreground">{row.fiscalStatus}</p>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : !reportQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">
-              Nenhuma venda encontrada com os filtros atuais.
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
+      <DetailCard title="Vendas do periodo">
+        <DataTable
+          columns={columns}
+          data={report?.rows ?? []}
+          emptyDescription="Ajuste os filtros para buscar outro periodo ou operador."
+          emptyTitle="Nenhuma venda encontrada"
+          loading={reportQuery.isLoading}
+          rowKey={(row) => row.id}
+        />
+      </DetailCard>
     </div>
   );
 }
 
-function FieldDate({
+function SelectField({
+  label,
+  onChange,
+  options,
+  value
+}: {
+  label: string;
+  onChange(value: string): void;
+  options: Array<{ label: string; value: string }>;
+  value: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <FieldLabel>{label}</FieldLabel>
+      <select
+        className={reportSelectClassName}
+        onChange={(event) => onChange(event.target.value)}
+        value={value}
+      >
+        <option value="">Todos</option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function DateField({
   label,
   value,
   onChange
@@ -313,8 +275,36 @@ function FieldDate({
 }) {
   return (
     <div className="space-y-2">
-      <label className="text-sm font-medium">{label}</label>
-      <Input onChange={(event) => onChange(event.target.value)} type="date" value={value} />
+      <FieldLabel>{label}</FieldLabel>
+      <Input
+        className={reportFieldClassName}
+        onChange={(event) => onChange(event.target.value)}
+        type="date"
+        value={value}
+      />
     </div>
   );
+}
+
+function FieldLabel({ children }: { children: string }) {
+  return (
+    <label
+      className="text-[13px] font-medium"
+      style={{ color: "var(--color-text-muted)" }}
+    >
+      {children}
+    </label>
+  );
+}
+
+function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      {message}
+    </div>
+  );
+}
+
+function getErrorMessage(error: unknown) {
+  return error ? parseApiError(error) : null;
 }

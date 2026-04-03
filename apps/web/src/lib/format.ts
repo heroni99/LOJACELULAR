@@ -5,6 +5,10 @@ export function formatCurrency(valueInCents: number) {
   }).format((valueInCents ?? 0) / 100);
 }
 
+export function formatCurrencyInput(valueInCents: number) {
+  return formatCurrency(valueInCents ?? 0);
+}
+
 export function formatCompactNumber(value: number) {
   return new Intl.NumberFormat("pt-BR").format(value ?? 0);
 }
@@ -23,7 +27,16 @@ export function centsToInputValue(valueInCents: number) {
 }
 
 export function parseCurrencyToCents(value: string) {
-  const normalized = value.replace(",", ".").trim();
+  const compact = value.replace(/\s/g, "").replace(/^R\$/, "").trim();
+
+  let normalized = compact;
+
+  if (compact.includes(",")) {
+    normalized = compact.replace(/\./g, "").replace(",", ".");
+  } else if ((compact.match(/\./g) ?? []).length > 1) {
+    normalized = compact.replace(/\./g, "");
+  }
+
   const parsed = Number(normalized);
 
   if (!Number.isFinite(parsed) || parsed < 0) {
@@ -31,6 +44,13 @@ export function parseCurrencyToCents(value: string) {
   }
 
   return Math.round(parsed * 100);
+}
+
+export function formatCurrencyInputFromDigits(value: string) {
+  const digits = value.replace(/\D/g, "");
+  const cents = digits ? Number(digits) : 0;
+
+  return formatCurrencyInput(cents);
 }
 
 export function parseInteger(value: string) {

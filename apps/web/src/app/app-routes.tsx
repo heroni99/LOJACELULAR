@@ -7,8 +7,12 @@ import { useAppSession } from "./session-context";
 import { CategoriesPage } from "@/pages/categories-page";
 import { CustomersPage } from "@/pages/customers-page";
 import { CashPage } from "@/pages/cash/cash-page";
+import { CustomerDetailPage } from "@/pages/customers/customer-detail-page";
+import { CustomerFormPage } from "@/pages/customers/customer-form-page";
 import { DashboardPage } from "@/pages/dashboard-page";
 import { FiscalPage } from "@/pages/fiscal/fiscal-page";
+import { MyCommissionsPage } from "@/pages/commissions/my-commissions-page";
+import { TeamCommissionsPage } from "@/pages/commissions/team-commissions-page";
 import { AccountsPayablePage } from "@/pages/finance/accounts-payable-page";
 import { AccountsReceivablePage } from "@/pages/finance/accounts-receivable-page";
 import { FinancialSummaryPage } from "@/pages/finance/financial-summary-page";
@@ -38,6 +42,7 @@ import { SaleDetailPage } from "@/pages/sales/sale-detail-page";
 import { SalesListPage } from "@/pages/sales/sales-list-page";
 import { ServiceOrderDetailPage } from "@/pages/service-orders/service-order-detail-page";
 import { ServiceOrderFormPage } from "@/pages/service-orders/service-order-form-page";
+import { ServiceOrderQuoteFormPage } from "@/pages/service-orders/service-order-quote-form-page";
 import { ServiceOrdersListPage } from "@/pages/service-orders/service-orders-list-page";
 import { StockLocationsPage } from "@/pages/stock-locations-page";
 import { StoreSettingsPage } from "@/pages/store-settings-page";
@@ -139,6 +144,30 @@ export function AppRoutes() {
             </PermissionRoute>
           }
           path="customers"
+        />
+        <Route
+          element={
+            <PermissionRoute permission="customers.create">
+              <CustomerFormPage />
+            </PermissionRoute>
+          }
+          path="customers/new"
+        />
+        <Route
+          element={
+            <PermissionRoute permission="customers.read">
+              <CustomerDetailPage />
+            </PermissionRoute>
+          }
+          path="customers/:id"
+        />
+        <Route
+          element={
+            <PermissionRoute permission="customers.update">
+              <CustomerFormPage />
+            </PermissionRoute>
+          }
+          path="customers/:id/edit"
         />
         <Route
           element={
@@ -246,6 +275,22 @@ export function AppRoutes() {
         />
         <Route
           element={
+            <PermissionRoute permission="commissions.read">
+              <MyCommissionsPage />
+            </PermissionRoute>
+          }
+          path="commissions/my"
+        />
+        <Route
+          element={
+            <PermissionRoute permission="commissions.manage">
+              <TeamCommissionsPage />
+            </PermissionRoute>
+          }
+          path="commissions/team"
+        />
+        <Route
+          element={
             <PermissionRoute permission="accounts-payable.read">
               <AccountsPayablePage />
             </PermissionRoute>
@@ -291,6 +336,22 @@ export function AppRoutes() {
             </PermissionRoute>
           }
           path="service-orders/new"
+        />
+        <Route
+          element={
+            <PermissionRoute permission="service-orders.update">
+              <ServiceOrderQuoteFormPage />
+            </PermissionRoute>
+          }
+          path="service-orders/:id/quotes/new"
+        />
+        <Route
+          element={
+            <PermissionRoute permission="service-orders.update">
+              <ServiceOrderQuoteFormPage />
+            </PermissionRoute>
+          }
+          path="service-orders/:id/quotes/:quoteId/edit"
         />
         <Route
           element={

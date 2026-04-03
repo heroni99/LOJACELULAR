@@ -11,6 +11,7 @@ import {
 } from "class-validator";
 import {
   normalizeFormat,
+  resolveQueryDateAlias,
   toOptionalBoolean,
   trimToUndefined
 } from "./report-query.utils";
@@ -37,10 +38,12 @@ export class CustomerReportFiltersDto {
   state?: string;
 
   @IsOptional()
+  @Transform(resolveQueryDateAlias("start"))
   @IsDateString()
   startDate?: string;
 
   @IsOptional()
+  @Transform(resolveQueryDateAlias("end"))
   @IsDateString()
   endDate?: string;
 
