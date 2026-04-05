@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
@@ -149,6 +149,16 @@ export function CashPage() {
     }
   });
 
+  const handleOpenSessionSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (openMutation.isPending || !selectedTerminalId) {
+      return;
+    }
+
+    openMutation.mutate();
+  };
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -199,7 +209,7 @@ export function CashPage() {
             <CardTitle className="text-xl">Abrir caixa</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-4">
+            <form className="space-y-4" onSubmit={handleOpenSessionSubmit}>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-sm font-medium" htmlFor="cash-terminal">
@@ -259,16 +269,14 @@ export function CashPage() {
               ) : null}
 
               <Button
+                className="w-full sm:w-fit"
                 disabled={openMutation.isPending || !selectedTerminalId}
-                onClick={() => {
-                  openMutation.mutate();
-                }}
-                type="button"
+                type="submit"
               >
                 <Wallet className="mr-2 h-4 w-4" />
-                Abrir sessao
+                Abrir caixa
               </Button>
-            </div>
+            </form>
 
             <Card className="border-border/70 bg-secondary/30">
               <CardHeader>
