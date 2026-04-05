@@ -204,7 +204,7 @@ Observacoes:
 
 Observacoes:
 
-- checkout exige sessao de caixa aberta
+- checkout garante uma sessao de caixa aberta no terminal padrao da loja antes de concluir a venda
 - item fisico exige `stockLocationId` ou local derivavel de forma segura
 - item serializado usa `productUnitId`, baixa estoque do local atual e marca a unidade como `SOLD`
 - o PDV aceita lookup por barcode, `internal_code`, `supplier_code`, nome e IMEI
@@ -340,6 +340,11 @@ Os grupos abaixo possuem backend e frontend reais, mas ainda seguem em consolida
 - `POST /api/cash/close`
 - `GET /api/cash/history`
 - `GET /api/cash/sessions/:id`
+
+Observacoes:
+
+- `GET /api/cash/current-session` garante uma sessao `OPEN` para o terminal padrao ativo da loja e a cria automaticamente com abertura zerada quando necessario
+- o fechamento permanece manual; apos fechar a sessao atual, a proxima consulta/operacao que depender do caixa abre uma nova sessao automaticamente
 
 ### Financial
 

@@ -16,6 +16,7 @@ import {
   PackagePlus,
   ReceiptText,
   ScanLine,
+  Smartphone,
   Store,
   Truck,
   Undo2,
@@ -58,6 +59,13 @@ export const navigationGroups: AppNavGroup[] = [
         to: "/pdv",
         icon: ScanLine,
         description: "Busca rapida, carrinho e checkout vinculado ao caixa.",
+        permission: "sales.checkout"
+      },
+      {
+        label: "Leitor mobile",
+        to: "/scanner",
+        icon: Smartphone,
+        description: "Pareamento por QR ou codigo para usar o celular como leitor.",
         permission: "sales.checkout"
       },
       {

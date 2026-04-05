@@ -166,7 +166,7 @@ export function PdvPage() {
   const checkoutMutation = useMutation({
     mutationFn: async () => {
       if (!cashSessionQuery.data) {
-        throw new Error("Abra um caixa antes de vender.");
+        throw new Error("Aguarde a sessao atual do caixa ficar disponivel.");
       }
 
       return checkoutSale(token, {
@@ -359,39 +359,38 @@ export function PdvPage() {
     <div className="space-y-6">
       <PageHeader
         actions={
-          cashSessionQuery.data ? (
-            <Button
-              disabled={!cart.length}
-              onClick={() => setCheckoutOpen(true)}
-              type="button"
-            >
-              Abrir checkout
-            </Button>
-          ) : null
+          <Button
+            disabled={!cashSessionQuery.data || !cart.length}
+            onClick={() => setCheckoutOpen(true)}
+            type="button"
+          >
+            Abrir checkout
+          </Button>
         }
         badge={
           <StatusBadge tone={cashSessionQuery.data ? "green" : "amber"}>
-            {cashSessionQuery.data ? "Caixa aberto" : "Caixa fechado"}
+            {cashSessionQuery.data
+              ? "Sessao atual pronta"
+              : cashSessionQuery.isLoading
+                ? "Preparando sessao"
+                : "Sessao indisponivel"}
           </StatusBadge>
         }
-        description="Busca rapida, carrinho e checkout integrado ao caixa aberto."
+        description="Busca rapida, carrinho e checkout integrados a sessao atual do caixa."
         eyebrow="Operacao"
         title="PDV"
       />
 
-      {!cashSessionQuery.data ? (
+      {cashSessionQuery.isError ? (
         <Card className="bg-white/90">
-          <CardContent className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-2xl font-black">Abra o caixa antes de vender</h2>
-              <p className="text-sm text-muted-foreground">
-                O PDV depende de uma sessao aberta para registrar pagamentos e
-                historico.
-              </p>
-            </div>
-            <Button asChild>
-              <Link to="/cash">Ir para caixa</Link>
-            </Button>
+          <CardContent className="p-6 text-sm text-red-700">
+            {(cashSessionQuery.error as Error).message}
+          </CardContent>
+        </Card>
+      ) : !cashSessionQuery.data ? (
+        <Card className="bg-white/90">
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            Preparando a sessao atual do caixa para o PDV...
           </CardContent>
         </Card>
       ) : (

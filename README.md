@@ -58,7 +58,7 @@ O shell autenticado hoje expoe:
 - etiqueta pequena de produto com `CODE 128` imprimivel pela web para uso em loja fisica
 - `inventory` com saldos, movimentacoes, entradas, ajustes, transferencias e busca por IMEI/serial
 - `stock_locations` com cadastro e local padrao
-- `sales` com checkout transacional real, exigencia de caixa aberto, baixa de estoque por local e atualizacao de `product_units`
+- `sales` com checkout transacional real, autoabertura da sessao de caixa no terminal padrao quando necessario, baixa de estoque por local e atualizacao de `product_units`
 - `pdv` com busca real por nome, barcode, `internal_code`, `supplier_code` e IMEI, local de estoque operacional, scanner mobile em tempo real por WebSocket e venda de item serializado por unidade
 - `fiscal-core` minimo com comprovante interno, impressao termica 80mm, cancelamento rastreado, historico de eventos e relatorio fiscal basico
 - `service-orders` com abertura, edicao, historico real de status, itens operacionais, consumo de pecas com impacto em estoque e comprovante imprimivel
@@ -74,7 +74,7 @@ O shell autenticado hoje expoe:
 
 Estes modulos ja possuem codigo real no backend e/ou frontend, mas ainda nao devem ser tratados como etapa fechada do produto:
 
-- `cash`
+- `cash` com sessao atual autoaberta no terminal padrao da loja e fechamento manual preservado
 - `financial/summary`
 - `dashboard`
 - `reports`

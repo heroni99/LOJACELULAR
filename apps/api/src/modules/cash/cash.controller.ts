@@ -78,8 +78,8 @@ export class CashController {
 
   @RequirePermissions("cash.read")
   @Get("current-session")
-  async findCurrentSession() {
-    return this.cashService.findCurrentSession();
+  async findCurrentSession(@Req() request: AuthenticatedRequest) {
+    return this.cashService.findCurrentSession(request.authUser?.storeId ?? null);
   }
 
   @RequirePermissions("cash.open")

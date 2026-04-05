@@ -1,6 +1,7 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState, type MouseEvent } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { Printer, RefreshCw, ScanBarcode } from "lucide-react";
 import { StatusBadge } from "@/components/app/status-badge";
 import { ProductImage } from "@/components/app/product-image";
 import { useAppSession } from "@/app/session-context";
@@ -29,7 +30,7 @@ export function ProductsListPage({
 }: {
   catalogMode?: CatalogMode;
 }) {
-  const { authEnabled, session } = useAppSession();
+  const { authEnabled, hasPermission, session } = useAppSession();
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("all");
   const [supplierId, setSupplierId] = useState("all");
@@ -177,6 +178,43 @@ export function ProductsListPage({
           </div>
         )
       });
+
+      baseColumns.push({
+        id: "barcode",
+        header: "Barcode",
+        cell: (product) => (
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {product.displayBarcode?.code ?? "Nao gerado"}
+            </p>
+            {product.displayBarcode ? (
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  onClick={stopTableRowClick}
+                  to={`/products/${product.id}/label`}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  Etiqueta
+                </Link>
+              </Button>
+            ) : hasPermission("products.update") ? (
+              <Button asChild size="sm" variant="outline">
+                <Link
+                  onClick={stopTableRowClick}
+                  to={`/products/${product.id}`}
+                >
+                  <ScanBarcode className="mr-2 h-4 w-4" />
+                  Gerar
+                </Link>
+              </Button>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Abrir detalhe do produto
+              </p>
+            )}
+          </div>
+        )
+      });
     }
 
     baseColumns.push({
@@ -197,7 +235,7 @@ export function ProductsListPage({
     });
 
     return baseColumns;
-  }, [isServiceCatalog]);
+  }, [hasPermission, isServiceCatalog]);
 
   return (
     <ListPage
@@ -208,7 +246,7 @@ export function ProductsListPage({
       description={
         isServiceCatalog
           ? "Catalogo de servicos com filtros avancados e detalhe dedicado por item."
-          : "Catalogo de produtos com filtros avancados, estoque total e detalhe dedicado por item."
+          : "Catalogo de produtos com filtros avancados, estoque total e acesso rapido a barcode e etiqueta."
       }
       emptyDescription={`Ajuste a busca ou os filtros para localizar o ${singularLabel} desejado.`}
       emptyTitle={`Nenhum ${singularLabel} encontrado`}
@@ -311,6 +349,10 @@ export function ProductsListPage({
       }
     />
   );
+}
+
+function stopTableRowClick(event: MouseEvent<HTMLElement>) {
+  event.stopPropagation();
 }
 
 function SelectField({

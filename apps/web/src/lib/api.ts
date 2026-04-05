@@ -3366,8 +3366,8 @@ export async function updateCashTerminalActive(
 
 export async function getCurrentCashSession(
   token?: string | null
-): Promise<CashSession | null> {
-  return readAuthenticatedJson<CashSession | null>("/cash/current-session", { token });
+): Promise<CashSession> {
+  return readAuthenticatedJson<CashSession>("/cash/current-session", { token });
 }
 
 export async function listCashHistory(

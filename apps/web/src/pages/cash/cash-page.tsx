@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
@@ -19,21 +19,15 @@ import {
   createCashWithdrawal,
   getCurrentCashSession,
   listCashHistory,
-  listCashTerminals,
-  openCashSession,
   type CashSession
 } from "@/lib/api";
 import {
   centsToInputValue,
-  formatCompactNumber,
   formatCurrency,
   formatDateTime,
   parseCurrencyToCents
 } from "@/lib/format";
 import { queryClient } from "@/lib/query-client";
-
-const selectClassName =
-  "flex h-11 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 const textareaClassName =
   "flex min-h-24 w-full rounded-xl border border-input bg-white/90 px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
@@ -42,10 +36,6 @@ export function CashPage() {
   const { authEnabled, session } = useAppSession();
   const token = authEnabled ? session.accessToken : undefined;
 
-  const terminalsQuery = useQuery({
-    queryKey: ["cash", "terminals"],
-    queryFn: () => listCashTerminals(token)
-  });
   const currentSessionQuery = useQuery({
     queryKey: ["cash", "current-session"],
     queryFn: () => getCurrentCashSession(token)
@@ -55,30 +45,15 @@ export function CashPage() {
     queryFn: () => listCashHistory(token)
   });
 
-  const terminals = terminalsQuery.data ?? [];
   const currentSession = currentSessionQuery.data;
   const cashHistory = historyQuery.data ?? [];
 
-  const [selectedTerminalId, setSelectedTerminalId] = useState("");
-  const [openingAmount, setOpeningAmount] = useState("0,00");
-  const [openingNotes, setOpeningNotes] = useState("");
   const [depositAmount, setDepositAmount] = useState("0,00");
   const [depositDescription, setDepositDescription] = useState("");
   const [withdrawalAmount, setWithdrawalAmount] = useState("0,00");
   const [withdrawalDescription, setWithdrawalDescription] = useState("");
   const [closingAmount, setClosingAmount] = useState("0,00");
   const [closingNotes, setClosingNotes] = useState("");
-
-  const activeTerminals = useMemo(
-    () => terminals.filter((terminal) => terminal.active),
-    [terminals]
-  );
-
-  useEffect(() => {
-    if (!selectedTerminalId && activeTerminals.length) {
-      setSelectedTerminalId(activeTerminals[0].id);
-    }
-  }, [activeTerminals, selectedTerminalId]);
 
   useEffect(() => {
     if (currentSession) {
@@ -95,26 +70,18 @@ export function CashPage() {
     ]);
   };
 
-  const openMutation = useMutation({
-    mutationFn: () =>
-      openCashSession(token, {
-        cashTerminalId: selectedTerminalId,
-        openingAmount: parseCurrencyToCents(openingAmount),
-        notes: openingNotes.trim() || undefined
-      }),
-    onSuccess: async () => {
-      setOpeningNotes("");
-      await invalidateCash();
-    }
-  });
-
   const depositMutation = useMutation({
-    mutationFn: () =>
-      createCashDeposit(token, {
-        cashSessionId: currentSession?.id ?? "",
+    mutationFn: async () => {
+      if (!currentSession) {
+        throw new Error("Sessao atual do caixa indisponivel.");
+      }
+
+      return createCashDeposit(token, {
+        cashSessionId: currentSession.id,
         amount: parseCurrencyToCents(depositAmount),
         description: depositDescription.trim() || undefined
-      }),
+      });
+    },
     onSuccess: async () => {
       setDepositAmount("0,00");
       setDepositDescription("");
@@ -123,12 +90,17 @@ export function CashPage() {
   });
 
   const withdrawalMutation = useMutation({
-    mutationFn: () =>
-      createCashWithdrawal(token, {
-        cashSessionId: currentSession?.id ?? "",
+    mutationFn: async () => {
+      if (!currentSession) {
+        throw new Error("Sessao atual do caixa indisponivel.");
+      }
+
+      return createCashWithdrawal(token, {
+        cashSessionId: currentSession.id,
         amount: parseCurrencyToCents(withdrawalAmount),
         description: withdrawalDescription.trim() || undefined
-      }),
+      });
+    },
     onSuccess: async () => {
       setWithdrawalAmount("0,00");
       setWithdrawalDescription("");
@@ -137,37 +109,36 @@ export function CashPage() {
   });
 
   const closeMutation = useMutation({
-    mutationFn: () =>
-      closeCashSession(token, {
-        cashSessionId: currentSession?.id ?? "",
+    mutationFn: async () => {
+      if (!currentSession) {
+        throw new Error("Sessao atual do caixa indisponivel.");
+      }
+
+      return closeCashSession(token, {
+        cashSessionId: currentSession.id,
         closingAmount: parseCurrencyToCents(closingAmount),
         notes: closingNotes.trim() || undefined
-      }),
+      });
+    },
     onSuccess: async () => {
       setClosingNotes("");
       await invalidateCash();
     }
   });
 
-  const handleOpenSessionSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (openMutation.isPending || !selectedTerminalId) {
-      return;
-    }
-
-    openMutation.mutate();
-  };
-
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Operacao"
         title="Caixa"
-        description="Acompanhe o terminal atual, abra sessao, registre suprimentos, sangrias e feche o caixa com visao clara dos movimentos."
+        description="Acompanhe a sessao atual do terminal padrao, registre suprimentos, sangrias e feche o caixa com visao clara dos movimentos."
         badge={
           <StatusBadge tone={currentSession ? "green" : "amber"}>
-            {currentSession ? "Sessao aberta" : "Aguardando abertura"}
+            {currentSession
+              ? "Sessao ativa"
+              : currentSessionQuery.isLoading
+                ? "Preparando sessao"
+                : "Sessao indisponivel"}
           </StatusBadge>
         }
       />
@@ -176,11 +147,13 @@ export function CashPage() {
         <MetricTile
           icon={<Wallet className="h-5 w-5 text-primary" />}
           label="Sessao atual"
-          value={currentSession ? "Aberta" : "Fechada"}
+          value={currentSession ? "Aberta" : "Carregando"}
           helper={
             currentSession
               ? currentSession.cashTerminal.name
-              : `${formatCompactNumber(activeTerminals.length)} terminal(is) disponivel(is)`
+              : currentSessionQuery.isError
+                ? "Falha ao carregar a sessao atual."
+                : "Garantindo a sessao atual do caixa."
           }
         />
         <MetricTile
@@ -203,113 +176,13 @@ export function CashPage() {
         />
       </div>
 
-      {!currentSession ? (
+      {currentSessionQuery.isError ? (
         <Card className="bg-white/90">
-          <CardHeader>
-            <CardTitle className="text-xl">Abrir caixa</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <form className="space-y-4" onSubmit={handleOpenSessionSubmit}>
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium" htmlFor="cash-terminal">
-                    Terminal
-                  </label>
-                  <select
-                    className={selectClassName}
-                    id="cash-terminal"
-                    onChange={(event) => {
-                      setSelectedTerminalId(event.target.value);
-                    }}
-                    value={selectedTerminalId}
-                  >
-                    {!activeTerminals.length ? (
-                      <option value="">Nenhum terminal ativo</option>
-                    ) : null}
-                    {activeTerminals.map((terminal) => (
-                      <option key={terminal.id} value={terminal.id}>
-                        {terminal.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium" htmlFor="opening-amount">
-                    Valor inicial
-                  </label>
-                  <Input
-                    id="opening-amount"
-                    onChange={(event) => {
-                      setOpeningAmount(event.target.value);
-                    }}
-                    placeholder="0,00"
-                    value={openingAmount}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="opening-notes">
-                  Observacoes
-                </label>
-                <textarea
-                  className={textareaClassName}
-                  id="opening-notes"
-                  onChange={(event) => {
-                    setOpeningNotes(event.target.value);
-                  }}
-                  placeholder="Ex.: abertura da manha, conferido em dinheiro."
-                  value={openingNotes}
-                />
-              </div>
-
-              {openMutation.error ? (
-                <p className="text-sm text-red-700">{(openMutation.error as Error).message}</p>
-              ) : null}
-
-              <Button
-                className="w-full sm:w-fit"
-                disabled={openMutation.isPending || !selectedTerminalId}
-                type="submit"
-              >
-                <Wallet className="mr-2 h-4 w-4" />
-                Abrir caixa
-              </Button>
-            </form>
-
-            <Card className="border-border/70 bg-secondary/30">
-              <CardHeader>
-                <CardTitle className="text-lg">Terminais ativos</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {activeTerminals.length ? (
-                  activeTerminals.map((terminal) => (
-                    <div
-                      key={terminal.id}
-                      className="rounded-2xl border border-border/70 bg-white/80 p-4"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="font-semibold">{terminal.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {terminal.store.displayName}
-                          </p>
-                        </div>
-                        <StatusBadge tone="green">Ativo</StatusBadge>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Nenhum terminal ativo encontrado. O seed deveria criar ao menos um terminal padrao.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+          <CardContent className="p-6 text-sm text-red-700">
+            {(currentSessionQuery.error as Error).message}
           </CardContent>
         </Card>
-      ) : (
+      ) : currentSession ? (
         <>
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
             <Card className="bg-white/90">
@@ -401,6 +274,7 @@ export function CashPage() {
 
             <CashActionCard
               actionLabel="Fechar sessao"
+              allowZeroAmount
               amount={closingAmount}
               amountId="cash-close-amount"
               description={closingNotes}
@@ -502,6 +376,12 @@ export function CashPage() {
             </Card>
           </div>
         </>
+      ) : (
+        <Card className="bg-white/90">
+          <CardContent className="p-6 text-sm text-muted-foreground">
+            Preparando a sessao atual do caixa...
+          </CardContent>
+        </Card>
       )}
 
       <Card className="bg-white/90">
@@ -587,6 +467,7 @@ function CashActionCard({
   descriptionId,
   descriptionLabel = "Descricao",
   actionLabel,
+  allowZeroAmount = false,
   isPending,
   errorMessage,
   onAmountChange,
@@ -601,6 +482,7 @@ function CashActionCard({
   descriptionId: string;
   descriptionLabel?: string;
   actionLabel: string;
+  allowZeroAmount?: boolean;
   isPending: boolean;
   errorMessage: string | null;
   onAmountChange(value: string): void;
@@ -648,7 +530,9 @@ function CashActionCard({
         {errorMessage ? <p className="text-sm text-red-700">{errorMessage}</p> : null}
 
         <Button
-          disabled={isPending || parseCurrencyToCents(amount) <= 0}
+          disabled={
+            isPending || parseCurrencyToCents(amount) < (allowZeroAmount ? 0 : 1)
+          }
           onClick={onSubmit}
           type="button"
           variant="outline"

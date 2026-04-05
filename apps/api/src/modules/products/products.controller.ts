@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -12,8 +13,11 @@ import {
   UseGuards,
   UseInterceptors
 } from "@nestjs/common";
+import { plainToInstance } from "class-transformer";
+import { validateSync } from "class-validator";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { AuthenticatedRequest } from "../../common/auth-request";
+import { formatValidationErrors } from "../../common/validation-errors";
 import { RequirePermissions } from "../auth/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../auth/guards/permissions.guard";
@@ -32,6 +36,67 @@ type UploadedProductImage = {
   size: number;
   originalname?: string;
 };
+
+function tryParseJson(value: string) {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeCreateLabelsPayload(rawPayload: unknown) {
+  const parsedPayload =
+    typeof rawPayload === "string" ? tryParseJson(rawPayload) : rawPayload;
+
+  if (Array.isArray(parsedPayload)) {
+    return {
+      items: parsedPayload
+    };
+  }
+
+  if (!isRecord(parsedPayload)) {
+    return parsedPayload;
+  }
+
+  const items =
+    typeof parsedPayload.items === "string"
+      ? tryParseJson(parsedPayload.items)
+      : parsedPayload.items;
+  const includePrice =
+    parsedPayload.includePrice === "true"
+      ? true
+      : parsedPayload.includePrice === "false"
+        ? false
+        : parsedPayload.includePrice;
+
+  return {
+    ...parsedPayload,
+    items,
+    includePrice
+  };
+}
+
+function parseCreateLabelsPayload(rawPayload: unknown) {
+  const payload = plainToInstance(
+    CreateProductLabelsDto,
+    normalizeCreateLabelsPayload(rawPayload)
+  );
+  const errors = validateSync(payload, {
+    whitelist: true,
+    forbidUnknownValues: false
+  });
+
+  if (errors.length > 0) {
+    throw new BadRequestException(formatValidationErrors(errors));
+  }
+
+  return payload;
+}
 
 @Controller("products")
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -77,9 +142,11 @@ export class ProductsController {
   @RequirePermissions("products.read")
   @Post("labels")
   async createLabels(
-    @Body() payload: CreateProductLabelsDto,
+    @Body() rawPayload: unknown,
     @Req() request: AuthenticatedRequest
   ) {
+    const payload = parseCreateLabelsPayload(rawPayload);
+
     return this.productsService.createLabels(payload, {
       userId: request.authUser?.sub ?? null,
       storeId: request.authUser?.storeId ?? null,

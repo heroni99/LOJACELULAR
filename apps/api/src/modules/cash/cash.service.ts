@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException
 } from "@nestjs/common";
@@ -84,6 +85,8 @@ type CashSessionWithRelations = Prisma.CashSessionGetPayload<{
 }>;
 
 type CashMovementRecord = CashSessionWithRelations["movements"][number];
+
+const automaticOpenNotes = "Sessão aberta automaticamente pelo sistema";
 
 @Injectable()
 export class CashService {
@@ -217,18 +220,84 @@ export class CashService {
     return terminal;
   }
 
-  async findCurrentSession() {
-    const session = await this.prisma.cashSession.findFirst({
-      where: {
-        status: CashSessionStatus.OPEN
-      },
-      include: cashSessionInclude,
-      orderBy: {
-        openedAt: "desc"
+  async findCurrentSession(storeId?: string | null) {
+    return this.ensureOpenSession(storeId);
+  }
+
+  async ensureOpenSession(storeId?: string | null) {
+    this.assertStoreScope(storeId);
+
+    const terminal = await this.findDefaultActiveTerminalForStore(storeId);
+    let createdAutomatically = false;
+
+    const session = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(
+        Prisma.sql`SELECT id FROM cash_terminals WHERE id = ${terminal.id} FOR UPDATE`
+      );
+
+      const existingOpenSession = await tx.cashSession.findFirst({
+        where: {
+          cashTerminalId: terminal.id,
+          status: CashSessionStatus.OPEN
+        },
+        include: cashSessionInclude,
+        orderBy: {
+          openedAt: "desc"
+        }
+      });
+
+      if (existingOpenSession) {
+        return existingOpenSession;
       }
+
+      createdAutomatically = true;
+
+      const created = await tx.cashSession.create({
+        data: {
+          cashTerminalId: terminal.id,
+          openedBy: null,
+          status: CashSessionStatus.OPEN,
+          openingAmount: 0,
+          notes: automaticOpenNotes
+        },
+        include: cashSessionInclude
+      });
+
+      await tx.cashMovement.create({
+        data: {
+          cashSessionId: created.id,
+          movementType: CashMovementType.OPENING,
+          amount: 0,
+          paymentMethod: PaymentMethod.CASH,
+          description: automaticOpenNotes,
+          userId: null
+        }
+      });
+
+      return tx.cashSession.findUniqueOrThrow({
+        where: {
+          id: created.id
+        },
+        include: cashSessionInclude
+      });
     });
 
-    return session ? this.decorateSession(session) : null;
+    if (createdAutomatically) {
+      await this.auditService.log({
+        storeId: terminal.storeId,
+        userId: null,
+        action: "cash.sessions.auto_opened",
+        entity: "cash_sessions",
+        entityId: session.id,
+        newData: {
+          cashTerminalId: terminal.id,
+          openingAmount: 0,
+          notes: automaticOpenNotes
+        }
+      });
+    }
+
+    return this.decorateSession(session);
   }
 
   async open(payload: OpenCashSessionDto, context: CashAuditContext) {
@@ -506,6 +575,27 @@ export class CashService {
     return store;
   }
 
+  private async findDefaultActiveTerminalForStore(storeId: string) {
+    const terminal = await this.prisma.cashTerminal.findFirst({
+      where: {
+        storeId,
+        active: true
+      },
+      include: cashTerminalInclude,
+      orderBy: {
+        createdAt: "asc"
+      }
+    });
+
+    if (!terminal) {
+      throw new NotFoundException(
+        "Nenhum terminal de caixa ativo foi encontrado para a loja."
+      );
+    }
+
+    return terminal;
+  }
+
   private async findTerminalById(id: string) {
     const terminal = await this.prisma.cashTerminal.findUnique({
       where: {
@@ -636,6 +726,12 @@ export class CashService {
   private normalizeOptionalText(value: string | undefined) {
     const trimmed = value?.trim();
     return trimmed ? trimmed : null;
+  }
+
+  private assertStoreScope(storeId?: string | null): asserts storeId is string {
+    if (!storeId) {
+      throw new ForbiddenException("Loja do operador nao encontrada para o caixa.");
+    }
   }
 
   private handleTerminalWriteError(error: unknown): never {

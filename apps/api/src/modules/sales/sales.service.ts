@@ -6,7 +6,6 @@ import {
 } from "@nestjs/common";
 import {
   CashMovementType,
-  CashSessionStatus,
   PaymentMethod,
   Prisma,
   ProductUnitStatus,
@@ -16,6 +15,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
+import { CashService } from "../cash/cash.service";
 import {
   CheckoutSaleDto,
   type CheckoutSaleItemDto,
@@ -169,7 +169,8 @@ const saleDetailInclude = {
 export class SalesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly cashService: CashService
   ) {}
 
   async findAll(storeId: string, filters: ListSalesDto) {
@@ -255,24 +256,7 @@ export class SalesService {
       throw new BadRequestException("Informe ao menos uma forma de pagamento.");
     }
 
-    const session = await this.prisma.cashSession.findUnique({
-      where: {
-        id: payload.cashSessionId
-      },
-      include: {
-        cashTerminal: true
-      }
-    });
-
-    if (!session) {
-      throw new NotFoundException("Sessao de caixa nao encontrada.");
-    }
-
-    if (session.status !== CashSessionStatus.OPEN) {
-      throw new BadRequestException(
-        "A venda exige uma sessao de caixa aberta."
-      );
-    }
+    const session = await this.cashService.ensureOpenSession(context.storeId);
 
     if (session.cashTerminal.storeId !== context.storeId) {
       throw new ForbiddenException(
