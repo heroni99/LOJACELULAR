@@ -13,8 +13,6 @@ getRequiredEnv("DATABASE_URL");
 getRequiredEnv("JWT_SECRET");
 getRequiredEnv("JWT_REFRESH_SECRET");
 
-let app: NestExpressApplication;
-
 async function bootstrap() {
   const configuredOrigins = new Set(
     (process.env.API_CORS_ORIGIN ?? "http://localhost:5173")
@@ -24,7 +22,7 @@ async function bootstrap() {
   );
   const isDevelopment = (process.env.NODE_ENV ?? "development") !== "production";
 
-  app = await NestFactory.create<NestExpressApplication>(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     cors: {
       origin: (origin, callback) => {
         if (!origin) {
@@ -32,7 +30,10 @@ async function bootstrap() {
           return;
         }
 
-        if (configuredOrigins.has(origin) || (isDevelopment && isLocalNetworkOrigin(origin))) {
+        if (
+          configuredOrigins.has(origin) ||
+          (isDevelopment && isLocalNetworkOrigin(origin))
+        ) {
           callback(null, true);
           return;
         }
@@ -62,7 +63,11 @@ async function bootstrap() {
     })
   );
 
-  await app.init();
+  const host = process.env.API_HOST ?? "0.0.0.0";
+  const port = resolvePort();
+  await app.listen(port, host);
+
+  console.log(`API pronta em http://${host}:${port}/api`);
 }
 
 function isLocalNetworkOrigin(origin: string) {
@@ -93,11 +98,15 @@ function isLocalNetworkOrigin(origin: string) {
   }
 }
 
-export default async (req: any, res: any) => {
-  if (!app) {
-    await bootstrap();
+function resolvePort() {
+  const value = process.env.PORT ?? process.env.API_PORT ?? "3000";
+  const port = Number(value);
+
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error(`Porta invalida para a API: ${value}`);
   }
 
-  const expressApp = app.getHttpAdapter().getInstance();
-  expressApp(req, res);
-};
+  return port;
+}
+
+void bootstrap();

@@ -115,6 +115,7 @@ docs/        Documentacao de arquitetura, contrato e estado atual
 - `docs/architecture.md`: arquitetura atual, shell principal e fronteiras entre camadas
 - `docs/domain-rules.md`: regras de negocio obrigatorias
 - `docs/api-contract.md`: contrato do que esta implementado hoje vs. o que ainda esta parcial ou planejado
+- `docs/public-api-deploy.md`: runbook para publicar a API fora do Vercel e conectar a web publicada
 - `docs/phase-0.md`: registro historico da fase inicial
 - `docs/codex-tasks/`: tarefas historicas por fase; nao substituem o estado atual consolidado
 
@@ -247,6 +248,8 @@ Se for criar o projeto no painel do Vercel, importe o repositorio normalmente pe
 - saida em `apps/web/dist`
 - fallback de rotas para `index.html` no SPA
 - nenhum deploy de function/API dentro do Vercel neste arranjo
+
+Para publicar a API Nest em um host Node persistente e conectar o frontend do Vercel, siga o runbook em [docs/public-api-deploy.md](docs/public-api-deploy.md).
 
 O seed tambem cria os owners:
 

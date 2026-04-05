@@ -4,12 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @lojacelular/shared build && nest start --watch",
-    "build": "pnpm --filter @lojacelular/shared build && pnpm prisma:generate && nest build",
+    "build": "pnpm --filter @lojacelular/shared build && pnpm prisma:generate && tsc -p tsconfig.json --incremental false",
     "start": "node dist/main.js",
+    "start:prod": "node dist/main.js",
     "typecheck": "pnpm --filter @lojacelular/shared build && tsc -p tsconfig.json --noEmit",
     "lint": "pnpm --filter @lojacelular/shared build && tsc -p tsconfig.json --noEmit",
     "prisma": "prisma",
     "prisma:generate": "prisma generate --config ../../prisma.config.ts",
+    "prisma:migrate:deploy": "prisma migrate deploy --config ../../prisma.config.ts",
     "prisma:migrate:dev": "prisma migrate dev --config ../../prisma.config.ts",
     "prisma:seed": "tsx ../../prisma/seed.ts"
   },
